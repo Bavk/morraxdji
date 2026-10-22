@@ -324,7 +324,7 @@ class MainActivity:ComponentActivity() {
                 if(attempt!=sessionEpoch)return@launch
                 current=LiveKit.create(applicationContext)
                 // Apply the operator-selected encoding before MediaProjection is created.
-                val profile=StreamProfile.fromIndex(
+                val profile=StreamProfile.fromPolicy(session.optString("streamProfile","auto"),
                     getSharedPreferences("operator",MODE_PRIVATE).getInt("quality_index",1))
                 current?.screenShareTrackCaptureDefaults=LocalVideoTrackOptions(
                     isScreencast=true,

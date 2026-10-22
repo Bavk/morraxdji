@@ -89,3 +89,10 @@
 .access-rooms{display:grid;gap:12px;max-height:45vh;overflow:auto}.access-rooms input{width:auto}.key-row{flex-wrap:wrap}
 
 .hide-stream-metrics .tile-metrics{display:none}#viewerSettings input[type="checkbox"]{width:auto}#viewerSettings select{background:#101a2b;color:#e7eefb;padding:8px;border:1px solid #456184;border-radius:6px}
+
+/* Daily controls stay visible; advanced tools remain available in one place. */
+.simple-interface #wallOrderButton,.simple-interface #wallSnapshot,.simple-interface #selfTest,.simple-interface #refresh,.simple-interface #renameRoom,.simple-interface #deleteRoom,.simple-interface .operator-rename,.simple-interface .operator-revoke{display:none}
+.service-tools summary,.keys-panel>summary{cursor:pointer;color:#b8ccec;padding:10px 0;font-weight:600}
+.operator-filters{display:flex;gap:10px;margin:12px 0;flex-wrap:wrap}.operator-filters input{flex:1;min-width:180px}.operator-filters input,.operator-filters select{background:#18263a;color:#e2e9f7;border:1px solid #40516c;padding:10px;border-radius:8px}
+.operator-caption{display:block;color:#91a7c3;font-size:11px;margin-top:4px}.keys-head{flex-wrap:wrap;gap:8px}.key-row strong{font-weight:600}.room-color.blue{color:#60a5fa}.room-color.green{color:#4ade80}.room-color.orange{color:#fb923c}.room-color.purple{color:#c084fc}.room-color.slate{color:#94a3b8}
+.entity-settings{width:min(640px,94vw);max-height:90vh;overflow:auto}.entity-settings .settings-basic,.entity-settings .settings-advanced{display:grid;gap:14px;padding:12px 0}.entity-settings label{display:grid;gap:6px;font-size:13px;color:#b5c9e3}.entity-settings input,.entity-settings select,.entity-settings textarea{padding:10px;background:#142033;color:#eef4ff;border:1px solid #40516c;border-radius:8px;width:100%;box-sizing:border-box}.entity-settings input[type=checkbox]{width:20px;height:20px}.entity-settings textarea{min-height:70px;resize:vertical}.entity-settings summary{padding:12px 0;cursor:pointer;color:#9dc5ff}.simple-interface .sidebar{gap:16px}.simple-interface header{padding:18px 22px}.simple-interface .shortcut-help{display:none}

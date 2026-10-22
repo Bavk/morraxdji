@@ -1,5 +1,6 @@
 import {loadViewerSettings,showViewerSettings} from './viewer-settings.mjs';
 import {showOperatorAccess} from './operator-access.mjs';
+import {showEntitySettings} from './entity-settings.mjs';
 import {askName} from './name-dialog.mjs';
 import {StreamSessionClock,formatSessionDuration} from './stream-session-clock.mjs';
 import {captureWallSnapshot,wallSnapshotSources} from './wall-snapshot.mjs';
@@ -24,6 +25,9 @@ import {MultiRoomViewer} from './multi-room-viewer.mjs';
 import {ViewerReconnect} from './viewer-reconnect.mjs';
 import {LoopbackTest,createTestPattern} from './loopback-test.mjs';
 let viewerSettings=loadViewerSettings(localStorage);
+let simpleInterface=true;try{simpleInterface=localStorage.getItem('usc-simple-interface')!=='false';}catch{}
+document.body.classList.toggle('simple-interface',simpleInterface);
+let operatorQuery='',operatorFilter='all';
 document.body.classList.toggle('hide-stream-metrics',!viewerSettings.showMetrics);
 const el=document.querySelector('#app');
 let rooms=[];let active=null;let session=null;let tiles=new Map();let serverInfo=null;
@@ -89,7 +93,7 @@ async function startScreen(){
  <form id="startForm"><label>Режим соединения</label>
  <select id="networkMode"><option value="vpn" ${configured?'':'disabled'}>VPN — интернет через ретранслятор ${configured?'':'(сначала настройте)'}</option>
  <option value="lan" ${configured?'':'selected'}>LAN — только локальная сеть (отладка)</option></select>
- <label>Локальный IPv4 ПК (для режима LAN)</label>
+ <label id="localIpLabel">Локальный IPv4 ПК (для режима LAN)</label>
  <select id="localIp">${options||'<option value="">IPv4 не обнаружен</option>'}</select>
  <button id="startButton" class="primary" type="submit" ${!info.ips.length&&!configured?'disabled':''}>▶ Запустить сервер и просмотр</button></form>
  <details class="vpn-settings" ${configured?'':'open'}><summary>🔒 VPN / подключение через интернет</summary>
@@ -108,7 +112,7 @@ async function startScreen(){
  <button id="recoverServer" class="minor" type="button" hidden>♻ Завершить оставшийся LiveKit и восстановить запуск</button><p id="diagResult" class="small-note" aria-live="polite"></p><p class="small-note">Видеосервер LiveKit встроен и запускается автоматически без Docker. VPN требует однократной настройки Linux-ретранслятора и WireGuard на Windows; Android VPN встроен в APK.</p>
  <p class="error" id="error" hidden></p></div></section>`;
  mountPowerSettings(info.power);
- const mode=q('#networkMode');mode.value=configured?'vpn':'lan';
+ const mode=q('#networkMode');mode.value=configured?'vpn':'lan';const showLocalIp=()=>{q('#localIp').hidden=mode.value==='vpn';q('#localIpLabel').hidden=mode.value==='vpn';};mode.onchange=showLocalIp;showLocalIp();
  const activate=q('#activateVpn');
  if(activate)activate.onclick=async()=>{
    activate.disabled=true;activate.textContent='Ожидание подтверждения Windows UAC…';
@@ -167,18 +171,24 @@ function dashboard(){
  presenceTimer=setInterval(()=>{if(active)pollPresence();},8000);
  el.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand">◉ UNIVERSAL STREAM CONTROL</div><div class="sectionlabel">КОМНАТЫ</div>
  <button id="allControllers" class="minor wall-button">▦ Все пульты</button><div id="roomList" class="room-list"></div><button id="addRoom" class="minor">+ Создать комнату</button>
- <div class="sidebar-footer"><div id="powerSettings"></div><button id="viewerSettingsButton" class="minor" type="button">Настройки просмотра</button><button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor">▤ Архив записей</button><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
+ <div class="sidebar-footer"><button id="interfaceMode" class="minor" type="button"></button><button id="viewerSettingsButton" class="minor" type="button">Настройки просмотра</button><button id="openArchive" class="minor">▤ Архив записей</button><details class="service-tools"><summary>Инструменты сервера</summary><div id="powerSettings"></div><button id="openEvents" class="minor" type="button">Журнал событий</button>
  <div id="endpoint" class="endpoint"></div><div id="pendingRoomCleanup" class="muted" role="status"></div><button id="copyUrl" class="minor">Копировать адрес</button>
  <button id="reconcileRevoked" class="minor">Проверить отключения операторов</button>
  <button id="saveDashboardDiagnostics" class="minor">📄 Сохранить диагностику</button>
  <button id="cleanupVpn" class="minor" ${serverInfo?.mode==='vpn'?'':'hidden'}>Проверить отзыв VPN-ключей</button>
- <button id="stopServer" class="danger">Остановить сервер</button><br/>Только видеотрансляции<br/>Передача звука и чат отключены</div></aside>
+ <button id="stopServer" class="danger">Остановить сервер</button></details><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div><br/>Только видеотрансляции<br/>Передача звука и чат отключены</div></aside>
  <main class="main"><header><div><div id="roomTitle" class="room-title">Выберите комнату</div><span id="roomInfo" class="muted">Мониторинг операторов</span></div>
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
- </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallSnapshot" class="minor" type="button" disabled title="Сохранить видимые потоки, названия и состояния в один PNG. До 16 пультов; кадры источников не синхронизированы.">Снимок стены</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
+ </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallSnapshot" class="minor" type="button" disabled title="Сохранить видимые потоки, названия и состояния в один PNG. До 16 пультов; кадры источников не синхронизированы.">Снимок стены</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Подключить пульт</button><button id="refresh" class="minor">Обновить</button></div></header>
  <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><label class="favorites-filter"><input id="favoritesOnly" type="checkbox"> Только избранные</label><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><label class="favorites-filter" title="Один короткий сигнал при отсутствии новых кадров согласно настройкам просмотра. Только после работающего видео; интервал задаётся в настройках. Включается на текущий сеанс."><input id="streamSound" type="checkbox"> Сигнал зависания</label><button id="testStreamSound" class="minor" type="button" disabled>Проверить звук</button><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
- <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="renameRoom" class="minor" disabled>Переименовать</button><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
+ <details class="keys-panel" open><summary>Операторы и доступ</summary><div class="keys-head"><h2>Операторы комнаты</h2><button id="roomSettings" class="minor" disabled>Настройки комнаты</button><button id="renameRoom" class="minor" disabled>Переименовать</button><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div class="operator-filters"><input id="operatorSearch" type="search" maxlength="120" placeholder="Найти оператора, команду или модель…" aria-label="Поиск операторов"><select id="operatorFilter" aria-label="Статус оператора"><option value="all">Все статусы</option><option value="streaming">В эфире</option><option value="online">Подключены</option><option value="offline">Не в сети</option><option value="paused">Приостановлены</option><option value="expired">Срок истёк</option><option value="revoked">Отозваны</option></select></div><div id="keys"></div></details></main></div>`;
+ const paintInterface=()=>{document.body.classList.toggle('simple-interface',simpleInterface);q('#interfaceMode').textContent=simpleInterface?'Все инструменты':'Простой интерфейс';q('.service-tools').open=!simpleInterface;};paintInterface();
+ q('#interfaceMode').onclick=()=>{simpleInterface=!simpleInterface;try{localStorage.setItem('usc-simple-interface',String(simpleInterface));}catch{recordingNotice('Вид изменён, но не сохранён на диске.',true);}paintInterface();};
+ q('#roomSettings').onclick=()=>{const room=rooms.find(r=>r.id===active);if(room)showEntitySettings({kind:'room',item:room,rooms,api:window.streamControl,onSaved:async result=>{await refresh(false);if(result.warning)displayErr(Error(result.warning));}});};
+ q('#operatorSearch').value=operatorQuery;q('#operatorFilter').value=operatorFilter;
+ q('#operatorSearch').oninput=e=>{operatorQuery=e.target.value;const room=rooms.find(r=>r.id===active);if(room)paintKeys(room);};
+ q('#operatorFilter').onchange=e=>{operatorFilter=e.target.value;const room=rooms.find(r=>r.id===active);if(room)paintKeys(room);};
  mountPowerSettings(serverInfo?.power);
  q('#viewerSettingsButton').onclick=()=>showViewerSettings({settings:viewerSettings,storage:localStorage,onChange:value=>{viewerSettings=value;streamAlerts.cooldownMs=value.alertSeconds*1000;document.body.classList.toggle('hide-stream-metrics',!value.showMetrics);}});
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
@@ -278,26 +288,31 @@ function showKey(key,name){
  dialog.querySelector('#closeKey').onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove());
 }
 function paintRoomList(){
- q('#roomList').innerHTML=rooms.map(r=>`<button class="room ${active===r.id?'selected':''}" data-room="${r.id}">
- <span>▣</span><span>${escapeHtml(r.name)}</span><small>${r.keys.filter(k=>!k.revoked).length}</small></button>`).join('')||'<p class="muted">Пока нет комнат</p>';
+ q('#roomList').innerHTML=[...rooms].sort((a,b)=>(a.settings?.sortOrder||0)-(b.settings?.sortOrder||0)).map(r=>`<button class="room ${active===r.id?'selected':''}" data-room="${r.id}">
+ <span class="room-color ${escapeHtml(r.settings?.color||'blue')}">●</span><span>${escapeHtml(r.settings?.group? r.settings.group+' · ':'')}${escapeHtml(r.name)}${r.settings?.open===false?' · Закрыта':''}</span><small>${r.assignedCount??r.keys.filter(k=>!k.revoked).length}</small></button>`).join('')||'<p class="muted">Пока нет комнат</p>';
  q('#roomList').querySelectorAll('[data-room]').forEach(btn=>btn.onclick=()=>selectRoom(btn.dataset.room));
  q('#allControllers').classList.toggle('selected',wallMode);
- const panel=q('.keys-panel');if(panel)panel.hidden=wallMode;
+ const panel=q('.keys-panel');if(panel)panel.hidden=wallMode;q('#roomSettings').disabled=wallMode||!active;
  if(wallMode){q('#roomTitle').textContent='Все ФПВ-пульты';q('#newKey').disabled=true;q('#renameRoom').disabled=true;q('#deleteRoom').disabled=true;q('#selfTest').disabled=true;q('#keys').textContent='';updateWallStatus();return;}
  const r=rooms.find(r=>r.id===active);q('#newKey').disabled=!r;q('#renameRoom').disabled=!r;q('#deleteRoom').disabled=!r;
  q('#selfTest').disabled=!r;
- q('#roomTitle').textContent=r?.name||'Выберите комнату';q('#roomInfo').textContent=r?'Операторы в комнате — трансляция экрана':'Мониторинг операторов';
+ q('#roomTitle').textContent=r?.name||'Выберите комнату';q('#roomInfo').textContent=r?((r.settings?.open===false?'Приём закрыт · ':'')+(r.settings?.description||'Операторы в комнате — трансляция экрана')):'Мониторинг операторов';
  if(r)paintKeys(r);else{q('#keys').innerHTML='<span class="muted">Ключей нет</span>';q('#content').innerHTML='<div class="empty">Выберите комнату слева</div>';}
 }
 function paintKeys(r){
- q('#keys').innerHTML=r.keys.length?r.keys.map(k=>{const state=presence.get(k.id);const stateName=k.revoked?'Отозван':state?.streaming?'● Транслирует':state?.online?'● Подключён':'○ Не в сети';const cls=k.revoked?'muted':state?.streaming?'streaming':state?.online?'online':'muted';return `<div class="key-row"><span>${escapeHtml(k.name)}</span><span class="${cls}">${stateName}</span>
- ${k.revoked?'':`<button class="minor" data-access-operator="${k.id}">Комнаты: ${(k.allowedRoomIds||[r.id]).length}</button><button class="minor" data-rename-operator="${k.id}">Переименовать</button><button class="danger" data-revoke="${k.id}">Отозвать</button>`}</div>`;}).join(''):'<span class="muted">Нажмите «Ключ оператора» для подключения первого пульта</span>';
- if(r.assignedOperators?.length){const heading=document.createElement('p');heading.className='muted';heading.textContent='Также имеют доступ (управляются в исходной комнате):';q('#keys').append(heading);for(const operator of r.assignedOperators){const item=document.createElement('p');item.textContent=operator.name;q('#keys').append(item);}}
- q('#keys').querySelectorAll('[data-access-operator]').forEach(button=>button.onclick=()=>{const operator=r.keys.find(key=>key.id===button.dataset.accessOperator);showOperatorAccess({api:window.streamControl,operator,homeRoomId:r.id,rooms,onSaved:async result=>{await refresh(false);if(result.warning)displayErr(Error(result.warning));}});});
- q('#keys').querySelectorAll('[data-rename-operator]').forEach(button=>button.onclick=async()=>{const id=button.dataset.renameOperator,operator=r.keys.find(k=>k.id===id);const name=await askName({title:'Новое имя пульта',value:operator?.name||'',maxLength:60});if(name===null||name.trim()===operator?.name)return;if(!name.trim()||name.trim().length>60||/[\u0000-\u001f\u007f]/.test(name)){displayErr(Error('Введите имя от 1 до 60 символов без управляющих символов'));return;}button.disabled=true;try{await window.streamControl.renameOperator(r.id,id,name.trim());await refresh(false);}catch(err){displayErr(err);}finally{if(button.isConnected)button.disabled=false;}});
- q('#keys').querySelectorAll('[data-revoke]').forEach(btn=>btn.onclick=async()=>{if(!confirm('Отозвать этот ключ?'))return;
- try{const result=await window.streamControl.revokeKey(r.id,btn.dataset.revoke);await refresh(false);if(result?.warning)displayErr(new Error(result.warning));}catch(err){displayErr(err);}});
+ const operators=[...r.keys,...(r.assignedOperators||[])];
+ const status=key=>key.revoked?'revoked':key.settings?.enabled===false?'paused':key.settings?.expiresAt&&key.settings.expiresAt<=Date.now()?'expired':presence.get(key.id)?.streaming?'streaming':presence.get(key.id)?.online?'online':'offline';
+ const labels={revoked:'Отозван',paused:'Приостановлен',expired:'Срок истёк',streaming:'● В эфире',online:'● Подключён',offline:'○ Не в сети'};
+ const shown=operators.filter(key=>(operatorFilter==='all'||status(key)===operatorFilter)&&[key.name,key.settings?.team,key.settings?.device].join(' ').toLocaleLowerCase().includes(operatorQuery.trim().toLocaleLowerCase()));
+ q('#keys').innerHTML=shown.map(k=>{const state=status(k);return `<div class="key-row"><span><strong>${escapeHtml(k.name)}</strong><small class="operator-caption">${escapeHtml([k.settings?.team,k.settings?.device,k.homeRoomId&&k.homeRoomId!==r.id?'Доступ из другой комнаты':''].filter(Boolean).join(' · '))}</small></span><span class="${state==='streaming'?'streaming':state==='online'?'online':'muted'}">${labels[state]}</span>
+ ${k.revoked?'':`<button class="minor" data-access-operator="${k.id}">Комнаты: ${(k.allowedRoomIds||[r.id]).length}</button><button class="minor" data-settings-operator="${k.id}">Настройки</button><button class="minor operator-rename" data-rename-operator="${k.id}">Переименовать</button><button class="danger operator-revoke" data-revoke="${k.id}">Отозвать</button>`}</div>`;}).join('')||'<p class="muted">'+(operators.length?'Нет операторов по выбранному фильтру':'Нажмите «Подключить пульт»')+'</p>';
+ q('#keys').querySelectorAll('[data-settings-operator]').forEach(button=>button.onclick=()=>{const item=operators.find(key=>key.id===button.dataset.settingsOperator);showEntitySettings({kind:'operator',item,rooms,api:window.streamControl,onSaved:async result=>{await refresh(false);if(result.warning)displayErr(Error(result.warning));}});});
+ q('#keys').querySelectorAll('[data-access-operator]').forEach(button=>button.onclick=()=>{const operator=operators.find(key=>key.id===button.dataset.accessOperator);showOperatorAccess({api:window.streamControl,operator,homeRoomId:operator.homeRoomId||r.id,rooms,onSaved:async result=>{await refresh(false);if(result.warning)displayErr(Error(result.warning));}});});
+ q('#keys').querySelectorAll('[data-rename-operator]').forEach(button=>button.onclick=async()=>{const item=operators.find(key=>key.id===button.dataset.renameOperator);const name=await askName({title:'Новое имя пульта',value:item.name,maxLength:60});if(name===null)return;try{await window.streamControl.renameOperator(item.homeRoomId||r.id,item.id,name.trim());await refresh(false);}catch(error){displayErr(error);}});
+ q('#keys').querySelectorAll('[data-revoke]').forEach(button=>button.onclick=async()=>{if(!confirm('Отозвать ключ без возможности повторного включения? Для временного отключения используйте настройки оператора.'))return;const operator=operators.find(key=>key.id===button.dataset.revoke);
+  try{const result=await window.streamControl.revokeKey(operator.homeRoomId||r.id,operator.id);await refresh(false);if(result?.warning)displayErr(Error(result.warning));}catch(error){displayErr(error);}});
 }
+
 async function pollPresence(){
  const roomId=active; if(!roomId)return;
  const request=++presenceRequest;
@@ -308,7 +323,7 @@ async function pollPresence(){
   const r=rooms.find(r=>r.id===roomId);
   const live=response.operators.filter(o=>o.streaming).length;
   const online=response.operators.filter(o=>o.online).length;
-  const summary=q('#presenceSummary');if(summary)summary.textContent=`В эфире: ${live}   ·   Подключено: ${online}   ·   Операторов с доступом: ${response.operators.filter(o=>!o.revoked).length}`;
+  const summary=q('#presenceSummary');if(summary)summary.textContent=`В эфире: ${live}   ·   Подключено: ${online}   ·   Операторов с доступом: ${[...(r?.keys||[]),...(r?.assignedOperators||[])].filter(k=>!k.revoked&&k.settings?.enabled!==false&&(!k.settings?.expiresAt||k.settings.expiresAt>Date.now())&&r.settings?.open!==false).length}`;
   if(r)paintKeys(r);
  }catch(err){const summary=q('#presenceSummary');if(summary)summary.textContent='Не удалось получить статусы операторов (проверьте LiveKit)';}
 }

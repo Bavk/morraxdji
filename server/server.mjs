@@ -7,6 +7,7 @@ import { LiveKitAdmin } from './livekit-admin.mjs';
 import { isProvisionedVpnAddress, vpnPeerMatchesOperator } from './operator-network.mjs';
 import { startRevocationReconciler, reconcileRevokedOperators } from './revoked-reconciler.mjs';
 import {reconcilePendingRoomDeletions,DELETED_ROOM_GUARD_MS} from './pending-deletions.mjs';
+import {operatorSettings,roomSettings,operatorActive,validatedSettings,validatedName} from './settings.mjs';
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 // Used both as a standalone Node.js API and embedded inside the Windows Electron main process.
@@ -63,9 +64,12 @@ if(!Array.isArray(db.accessRevocations))throw Error('Invalid access revocations'
 const accessIds=(home,key)=>Array.isArray(key.allowedRoomIds)?key.allowedRoomIds:[home.id];
 const allOperators=()=>db.rooms.flatMap(home=>home.keys.map(key=>({home,key})));
 const allowedRooms=(home,key)=>db.rooms.filter(room=>accessIds(home,key).includes(room.id));
+const assignmentCount=(room,exceptId)=>allOperators().filter(({home,key})=>!key.revoked&&key.id!==exceptId&&accessIds(home,key).includes(room.id)).length;
+const fullRoom=(room,exceptId)=>roomSettings(room).maxOperators>0&&assignmentCount(room,exceptId)>=roomSettings(room).maxOperators;
+const visibleOperator=(home,key)=>({id:key.id,name:key.name,homeRoomId:home.id,createdAt:key.createdAt,revoked:!!key.revoked,allowedRoomIds:allowedRooms(home,key).map(r=>r.id),settings:operatorSettings(key)});
 function enforcementRooms(){
  const operators=allOperators(),now=Date.now();
- return db.rooms.map(room=>({...room,keys:[...operators.map(({home,key})=>({...key,revoked:!!key.revoked||!accessIds(home,key).includes(room.id)})),...db.accessRevocations.filter(item=>item.roomId===room.id&&item.expireAt>now).map(item=>({id:item.keyId,revoked:true}))]}));
+ return db.rooms.map(room=>({...room,keys:[...operators.map(({home,key})=>({...key,revoked:!operatorActive(key,now)||!roomSettings(room).open||!accessIds(home,key).includes(room.id)})),...db.accessRevocations.filter(item=>item.roomId===room.id&&item.expireAt>now).map(item=>({id:item.keyId,revoked:true}))]}));
 }
 function holdAccessRevocation(roomId,keyId){db.accessRevocations=db.accessRevocations.filter(item=>item.expireAt>Date.now()&&!(item.roomId===roomId&&item.keyId===keyId));db.accessRevocations.push({roomId,keyId,expireAt:Date.now()+330000});}
 async function kickFromRooms(keyId,roomIds){
@@ -96,7 +100,7 @@ async function readBody(req) {
   try { return body ? JSON.parse(body) : {}; } catch { throw Object.assign(Error('Invalid JSON'),{code:400}); }
 }
 function visibleRoom(room) {
-  return { id:room.id, name:room.name, assignedOperators:allOperators().filter(({home,key})=>home.id!==room.id&&!key.revoked&&accessIds(home,key).includes(room.id)).map(({home,key})=>({id:key.id,name:key.name,homeRoomId:home.id})), keys:room.keys.map(k => ({ id:k.id,name:k.name,createdAt:k.createdAt,revoked:!!k.revoked,allowedRoomIds:allowedRooms(room,k).map(r=>r.id) })) };
+  return {id:room.id,name:room.name,settings:roomSettings(room),assignedCount:assignmentCount(room),assignedOperators:allOperators().filter(({home,key})=>home.id!==room.id&&!key.revoked&&accessIds(home,key).includes(room.id)).map(({home,key})=>visibleOperator(home,key)),keys:room.keys.map(key=>visibleOperator(room,key))};
 }
 function admin(req) {
   // Management endpoints are never available from other computers in this prototype.
@@ -121,12 +125,15 @@ const server = http.createServer(async (req,res) => {
         if (operator) {
           if(operatorAccess==='vpn-only' && !vpnPeerMatchesOperator(req.socket.remoteAddress,operator.id,config.operatorVpnAddressForId))
             return reply(res,403,{error:'This key does not belong to the connected VPN device'});
-          const available=allowedRooms(room,operator);
+          if(!operatorActive(operator))return reply(res,403,{error:operatorSettings(operator).enabled?'Срок доступа оператора истёк':'Доступ оператора временно приостановлен'});
+          const preferences=operatorSettings(operator);
+          const available=allowedRooms(room,operator).filter(target=>roomSettings(target).open).sort((a,b)=>Number(b.id===preferences.preferredRoomId)-Number(a.id===preferences.preferredRoomId));
           if(pathname==='/api/operator/rooms')return reply(res,200,{rooms:available.map(r=>({id:r.id,name:r.name})),operatorName:operator.name});
           const target=body.roomId===undefined?available[0]:available.find(r=>r.id===body.roomId);
           if(!target)return reply(res,403,{error:'Нет доступа к выбранной комнате'});
           return reply(res,200,{wsUrl,roomId:target.id,roomName:target.name,operatorName:operator.name,
-          token:jwt({identity:`operator_${operator.id}`,name:operator.name,room:target.id,publisher:true})});
+          streamProfile:preferences.profile==='auto'?roomSettings(target).profile:preferences.profile,
+          token:jwt({identity:`operator_${operator.id}`,name:operator.name,room:target.id,publisher:true,ttlSeconds:preferences.expiresAt===null?300:Math.max(1,Math.min(300,Math.floor(preferences.expiresAt/1000)-Math.floor(Date.now()/1000)))})});
         }
       }
       return reply(res,401,{error:'Invalid or revoked key'});
@@ -147,18 +154,40 @@ const server = http.createServer(async (req,res) => {
       const room = { id:uid('room'),name,keys:[] };
       db.rooms.push(room); persist(); return reply(res,201,{room:visibleRoom(room)});
     }
+    const settingsMatch=pathname.match(/^\/api\/admin\/(operators|rooms)\/((?:key|room)_[a-f0-9]{20})\/settings$/);
+    if(req.method==='PATCH'&&settingsMatch){
+      const isOperator=settingsMatch[1]==='operators',id=settingsMatch[2];
+      const found=isOperator?allOperators().find(({key})=>key.id===id):null;
+      const item=isOperator?found?.key:db.rooms.find(room=>room.id===id);
+      if(!item)return reply(res,404,{error:'Объект не найден'});
+      if(isOperator&&item.revoked)return reply(res,409,{error:'Отозванный ключ нельзя активировать. Создайте новый.'});
+      const body=await readBody(req);
+      if(!body||typeof body!=='object'||Array.isArray(body))return reply(res,400,{error:'Ожидается объект настроек'});
+      const next=validatedSettings(isOperator?'operator':'room',item.settings,body.settings===undefined?{}:body.settings);
+      const name=body.name===undefined?item.name:validatedName(body.name,isOperator?60:80);
+      if(isOperator&&next.preferredRoomId!==null&&!allowedRooms(found.home,item).some(room=>room.id===next.preferredRoomId))return reply(res,400,{error:'Предпочтительная комната должна быть разрешена оператору'});
+      if(!isOperator&&next.maxOperators>0&&assignmentCount(item)>next.maxOperators)return reply(res,409,{error:'Сначала сократите число назначенных операторов или увеличьте лимит'});
+      const oldName=item.name,oldSettings=item.settings;item.name=name;item.settings=next;
+      try{persist();}catch(error){item.name=oldName;if(oldSettings===undefined)delete item.settings;else item.settings=oldSettings;throw error;}
+      let mediaDisconnected=true;
+      if(isOperator&&!operatorActive(item))mediaDisconnected=await kickFromRooms(item.id,accessIds(found.home,item));
+      if(!isOperator&&!next.open)for(const {home,key} of allOperators().filter(({home,key})=>accessIds(home,key).includes(id)))if(!await kickFromRooms(key.id,[id]))mediaDisconnected=false;
+      return reply(res,200,{ok:true,...(isOperator?{operator:visibleOperator(found.home,item)}:{room:visibleRoom(item)}),mediaDisconnected,...(!mediaDisconnected?{warning:'Настройки сохранены. Отключение действующих сеансов будет повторено автоматически.'}:{})});
+    }
     const accessMatch=pathname.match(/^\/api\/admin\/operators\/(key_[a-f0-9]{20})\/rooms$/);
     if(req.method==='PATCH'&&accessMatch){
       const found=allOperators().find(({key})=>key.id===accessMatch[1]);if(!found)return reply(res,404,{error:'Оператор не найден'});
       if(found.key.revoked)return reply(res,409,{error:'Ключ отозван'});
       const body=await readBody(req),ids=body.roomIds;
       if(!Array.isArray(ids)||!ids.length||ids.length>100||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!db.rooms.some(room=>room.id===id)))return reply(res,400,{error:'Выберите от 1 до 100 существующих комнат без повторений'});
+      if(ids.some(id=>fullRoom(db.rooms.find(room=>room.id===id),found.key.id)))return reply(res,409,{error:'Достигнут лимит назначенных операторов в одной из комнат'});
       const previous=accessIds(found.home,found.key),removed=previous.filter(id=>!ids.includes(id));
-      const old=found.key.allowedRoomIds,oldRevocations=[...db.accessRevocations];found.key.allowedRoomIds=[...ids];
+      const old=found.key.allowedRoomIds,oldSettings=found.key.settings,oldRevocations=[...db.accessRevocations];found.key.allowedRoomIds=[...ids];
+      if(found.key.settings?.preferredRoomId&&!ids.includes(found.key.settings.preferredRoomId))found.key.settings={...found.key.settings,preferredRoomId:null};
       for(const id of removed)holdAccessRevocation(id,found.key.id);
       // A re-grant makes the operator legitimate in that room again.
       db.accessRevocations=db.accessRevocations.filter(item=>item.keyId!==found.key.id||!ids.includes(item.roomId));
-      try{persist();}catch(error){if(old===undefined)delete found.key.allowedRoomIds;else found.key.allowedRoomIds=old;db.accessRevocations=oldRevocations;throw error;}
+      try{persist();}catch(error){if(old===undefined)delete found.key.allowedRoomIds;else found.key.allowedRoomIds=old;if(oldSettings===undefined)delete found.key.settings;else found.key.settings=oldSettings;db.accessRevocations=oldRevocations;throw error;}
       const mediaDisconnected=await kickFromRooms(found.key.id,removed);
       return reply(res,200,{ok:true,roomIds:ids,mediaDisconnected,...(!mediaDisconnected?{warning:'Доступ изменён. Отключение старых сеансов будет повторено автоматически.'}:{})});
     }
@@ -205,6 +234,7 @@ const server = http.createServer(async (req,res) => {
       return reply(res,200,{operators});
     }
     if (req.method === 'POST' && action === 'keys' && !keyId) {
+      if(fullRoom(room))return reply(res,409,{error:'Достигнут лимит назначенных операторов комнаты'});
       const body = await readBody(req);
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       if (!name || name.length > 60) return reply(res,400,{error:'Operator name must be 1..60 chars'});

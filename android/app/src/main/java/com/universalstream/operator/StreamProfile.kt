@@ -10,5 +10,11 @@ internal enum class StreamProfile(val width: Int, val height: Int, val fps: Int,
 
     companion object {
         fun fromIndex(index: Int): StreamProfile = entries.getOrElse(index) { STANDARD }
+        fun fromPolicy(policy:String,localIndex:Int):StreamProfile=when(policy){
+            "economy"->ECONOMY
+            "standard"->STANDARD
+            "detail"->DETAIL
+            else->fromIndex(localIndex)
+        }
     }
 }

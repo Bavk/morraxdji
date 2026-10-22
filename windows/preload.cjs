@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('streamControl',Object.freeze({
   stopServer:()=>call('server:stop'),
   reconcileRevoked:()=>call('room:reconcile'),
   rooms:()=>call('room:list'),
+  updateRoomSettings:(id,body)=>call('room:settings',id,body),
+  updateOperatorSettings:(id,body)=>call('operator:settings',id,body),
   renameRoom:(id,name)=>call('room:rename',id,name),
   createRoom:(name)=>call('room:create',name),
   deleteRoom:(id)=>call('room:delete',id),
