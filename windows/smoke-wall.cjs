@@ -51,9 +51,11 @@ app.whenReady().then(async()=>{
   assert.ok(response.ok,route+' '+response.status);return response.json();
  };
  const rooms=[];for(const name of ['Пульт A','Пульт B'])rooms.push((await call('/api/admin/rooms','POST',{name})).room);
+ const issuedOperator=await call(`/api/admin/rooms/${rooms[0].id}/keys`,'POST',{name:'Тест Windows'});
  powerGuard.update(true);assert.equal(powerGuard.status().active,true);
  ipcMain.handle('power:configure',(_,enabled)=>powerGuard.setEnabled(enabled));
  ipcMain.handle('server:status',()=>({power:powerGuard.status(),running:true,mode:'lan',ips:[ip],vpn:{configured:false},operatorUrl:base}));
+ ipcMain.handle('key:rename',(_,id,keyId,name)=>call(`/api/admin/rooms/${id}/keys/${keyId}`,'PATCH',{name}));
  ipcMain.handle('key:create',()=>({key:syntheticInvite}));
  ipcMain.handle('invite:save',(_,code)=>saveInvite(path.join(dir,'synthetic-invite.usc'),code));
  ipcMain.handle('room:rename',(_,id,name)=>call(`/api/admin/rooms/${id}`,'PATCH',{name}));
@@ -80,7 +82,7 @@ app.whenReady().then(async()=>{
  await viewer.loadFile(path.join(__dirname,'dist/index.html'));
  await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('#allControllers'))"),'dashboard');
  await viewer.webContents.executeJavaScript("document.querySelector('#allControllers').click()");
- const configs=[];for(const room of rooms)configs.push(await call(`/api/admin/rooms/${room.id}/selftest`,'POST',{}));
+ const configs=[];for(const room of rooms)configs.push(room.id===rooms[0].id?await call('/api/operator/session','POST',{key:issuedOperator.key}):await call(`/api/admin/rooms/${room.id}/selftest`,'POST',{}));
  const {build}=await import('vite');
  const built=await build({configFile:false,logLevel:'error',build:{write:false,lib:{entry:path.join(__dirname,'testing/wall-publishers.mjs'),formats:['iife'],name:'USCWallPublisher'},minify:false}});
  const bundle=(Array.isArray(built)?built[0]:built).output.find(x=>x.type==='chunk').code;
@@ -157,6 +159,17 @@ app.whenReady().then(async()=>{
  assert.equal(await viewer.webContents.executeJavaScript('window.__switchPrompts'),1);
  assert.deepEqual([...recordingStore.sessions.keys()],protectedSessions);
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('#wallRoomStates').hidden"),false);
+ const operatorRenameSessions=[...recordingStore.sessions.keys()];
+ const operatorRenameTracks=await viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile video')].map(v=>v.srcObject.getVideoTracks()[0].id)");
+ await call(`/api/admin/rooms/${rooms[0].id}/keys/${issuedOperator.operator.id}`,'PATCH',{name:'FPV Север'});
+ await viewer.webContents.executeJavaScript("document.querySelector('#refresh').click()");
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelector('.tile .tile-footer>span').textContent.includes('FPV Север')"),'operator name updates without reconnect');
+ await searchStreams('fpv север');assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile:not([hidden])').length"),1);
+ assert.deepEqual([...recordingStore.sessions.keys()],operatorRenameSessions);
+ assert.deepEqual(await viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile video')].map(v=>v.srcObject.getVideoTracks()[0].id)"),operatorRenameTracks);
+ await call(`/api/admin/rooms/${rooms[0].id}/keys/${issuedOperator.operator.id}`,'PATCH',{name:'Тест Windows'});
+ await viewer.webContents.executeJavaScript("document.querySelector('#clearStreamSearch').click();document.querySelector('#refresh').click()");
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelector('.tile .tile-footer>span').textContent.endsWith('Тест Windows')"),'operator name restored');
  const renameSessions=[...recordingStore.sessions.keys()];
  const renameTracks=await viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile video')].map(v=>v.srcObject.getVideoTracks()[0].id)");
  await call(`/api/admin/rooms/${rooms[0].id}`,'PATCH',{name:'Пульт Север'});
@@ -321,6 +334,10 @@ app.whenReady().then(async()=>{
  await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('#saveInvite')"),'invite dialog closed');
  await viewer.webContents.executeJavaScript("document.querySelector('.record-button').click()");
  await until(()=>recordingStore.sessions.size===1&&[...recordingStore.sessions.keys()].some(id=>(recordingChunks.get(id)||0)>=2),'recording before close');
+ const beforeOperatorRenameSession=[...recordingStore.sessions.keys()][0];
+ await viewer.webContents.executeJavaScript("window.prompt=()=> 'FPV оператор';document.querySelector('[data-rename-operator]').click()");
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelector('.tile .tile-footer>span').textContent==='FPV оператор'"),'rename operator from keys UI during recording');
+ assert.ok(recordingStore.sessions.has(beforeOperatorRenameSession));
  const beforeRenameSession=[...recordingStore.sessions.keys()][0];
  await viewer.webContents.executeJavaScript("window.prompt=()=> 'Пульт A переименован';document.querySelector('#renameRoom').click()");
  await until(()=>viewer.webContents.executeJavaScript("document.querySelector('#roomTitle').textContent==='Пульт A переименован'"),'rename selected room from UI');
@@ -344,5 +361,5 @@ app.whenReady().then(async()=>{
  assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===6,'final chunk saved before window closes');await verifyRecording(savedRecordings[5]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate, live room rename preserves tracks/recordings/search');
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate, live room rename preserves tracks/recordings/search, live operator rename preserves credentials/tracks/recordings/search');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

@@ -1,3 +1,4 @@
+import {sourceDisplayName} from './source-name.mjs';
 import {summarizeStreams,formatStreamSummary} from './wall-summary.mjs';
 import {wallShortcut} from './wall-shortcuts.mjs';
 import {confirmViewSwitch} from './view-switch.mjs';
@@ -264,7 +265,8 @@ function paintRoomList(){
 }
 function paintKeys(r){
  q('#keys').innerHTML=r.keys.length?r.keys.map(k=>{const state=presence.get(k.id);const stateName=k.revoked?'Отозван':state?.streaming?'● Транслирует':state?.online?'● Подключён':'○ Не в сети';const cls=k.revoked?'muted':state?.streaming?'streaming':state?.online?'online':'muted';return `<div class="key-row"><span>${escapeHtml(k.name)}</span><span class="${cls}">${stateName}</span>
- ${k.revoked?'':`<button class="danger" data-revoke="${k.id}">Отозвать</button>`}</div>`;}).join(''):'<span class="muted">Нажмите «Ключ оператора» для подключения первого пульта</span>';
+ ${k.revoked?'':`<button class="minor" data-rename-operator="${k.id}">Переименовать</button><button class="danger" data-revoke="${k.id}">Отозвать</button>`}</div>`;}).join(''):'<span class="muted">Нажмите «Ключ оператора» для подключения первого пульта</span>';
+ q('#keys').querySelectorAll('[data-rename-operator]').forEach(button=>button.onclick=async()=>{const id=button.dataset.renameOperator,operator=r.keys.find(k=>k.id===id);const name=prompt('Новое имя пульта (до 60 символов)',operator?.name||'');if(name===null||name.trim()===operator?.name)return;if(!name.trim()||name.trim().length>60||/[\u0000-\u001f\u007f]/.test(name)){displayErr(Error('Введите имя от 1 до 60 символов без управляющих символов'));return;}button.disabled=true;try{await window.streamControl.renameOperator(r.id,id,name.trim());await refresh(false);}catch(err){displayErr(err);}finally{if(button.isConnected)button.disabled=false;}});
  q('#keys').querySelectorAll('[data-revoke]').forEach(btn=>btn.onclick=async()=>{if(!confirm('Отозвать этот ключ?'))return;
  try{const result=await window.streamControl.revokeKey(r.id,btn.dataset.revoke);await refresh(false);if(result?.warning)displayErr(new Error(result.warning));}catch(err){displayErr(err);}});
 }
@@ -304,7 +306,7 @@ function applyGridLayout(){
  grid.style.setProperty('--grid-columns',gridColumns?String(gridColumns):'0');
  if(layoutWarning){layoutWarning=false;recordingNotice('Настройки видеостены не удалось сохранить на диск. Изменения действуют до закрытия приложения.',true);}
  grid.classList.toggle('fixed-grid',gridColumns>0);
- for(const entry of tiles.values())if(entry.showRoomName){const room=rooms.find(r=>r.id===entry.roomId);if(room){entry.label=room.name+' · '+entry.participantName;entry.nameNode.textContent=entry.label;entry.nameNode.title=entry.label;observedSources.set(`${entry.roomId}:${entry.identity}`,entry.label);}}
+ for(const entry of tiles.values()){const room=rooms.find(r=>r.id===entry.roomId);const name=sourceDisplayName(room,entry.identity,entry.participantName);entry.label=(entry.showRoomName&&room?room.name+' · ':'')+name;entry.nameNode.textContent=entry.label;entry.nameNode.title=entry.label;observedSources.set(`${entry.roomId}:${entry.identity}`,entry.label);}
  const view=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name})),streamQuery,focusedTile);focusedTile=view.focusedId;const visible=new Set(view.visible);
  grid.classList.toggle('focused-grid',Boolean(focusedTile));
  const order=wallLayout.sorted([...new Set([...tiles.values()].map(t=>t.sourceKey))]);
@@ -390,7 +392,7 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  const grid=q('#grid');if(!grid)return;
  const item=document.createElement('article');item.className='tile';
  const video=document.createElement('video');video.autoplay=true;video.playsInline=true;video.muted=true;
- const footer=document.createElement('div');footer.className='tile-footer';const n=document.createElement('span');n.textContent=(roomName?roomName+' · ':'')+(p.name||p.identity);n.title=n.textContent;
+ const footer=document.createElement('div');footer.className='tile-footer';const n=document.createElement('span');n.textContent=(roomName?roomName+' · ':'')+sourceDisplayName(rooms.find(r=>r.id===roomId),p.identity,p.name||p.identity);n.title=n.textContent;
  const badge=document.createElement('span');badge.className='online';badge.textContent='Ожидание видео';
  const focus=document.createElement('button');focus.className='focus-button';focus.textContent='Крупно';focus.title='Увеличить выбранный поток';focus.onclick=()=>focusTile(id);
  const visual=document.createElement('div');visual.className='tile-visual';

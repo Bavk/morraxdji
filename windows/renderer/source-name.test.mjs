@@ -1,0 +1,2 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {sourceDisplayName} from './source-name.mjs';
+test('local operator name overrides stale token name only for matching stable identity and room',()=>{const room={keys:[{id:'key_a',name:'New'}]};assert.equal(sourceDisplayName(room,'operator_key_a','Old'),'New');assert.equal(sourceDisplayName({keys:[]},'operator_key_a','Old'),'Old');assert.equal(sourceDisplayName(room,'selftest_a','Test'),'Test');assert.equal(sourceDisplayName(room,'other',''),'other');});

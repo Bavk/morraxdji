@@ -1,0 +1,20 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createApiServer} from './server.mjs';
+test('operator rename preserves credentials, persists and does not disconnect publishers',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'usc-oprename-')),file=path.join(dir,'rooms.json');let kicks=0;
+ const config={host:'127.0.0.1',port:0,dataPath:file,adminPassword:'synthetic-admin-secret-long-enough',apiKey:'synthetic',apiSecret:'synthetic-api-secret-long-enough',wsUrl:'ws://127.0.0.1:7880',revocationReconcile:false,livekitControl:{removeParticipant:async()=>{kicks++;}}};
+ let server=await createApiServer(config);t.after(async()=>{await new Promise(r=>server.close(r));fs.rmSync(dir,{recursive:true,force:true});});
+ const req=async(route,method='GET',body,auth=true)=>{const r=await fetch(`http://127.0.0.1:${server.address().port}${route}`,{method,headers:{'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+config.adminPassword}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:r.status,data:await r.json()};};
+ const room=(await req('/api/admin/rooms','POST',{name:'Group'})).data.room;
+ const issued=(await req(`/api/admin/rooms/${room.id}/keys`,'POST',{name:'Before'})).data;
+ const endpoint=`/api/admin/rooms/${room.id}/keys/${issued.operator.id}`;
+ const before=JSON.parse(fs.readFileSync(file,'utf8')).rooms[0].keys[0];
+ assert.equal((await req(endpoint,'PATCH',{name:'Denied'},false)).status,401);
+ for(const name of ['', 'x'.repeat(61), 'bad\nname',false])assert.equal((await req(endpoint,'PATCH',{name})).status,400);
+ const renamed=await req(endpoint,'PATCH',{name:'  Пульт Север  '});assert.equal(renamed.status,200);assert.deepEqual(renamed.data.operator,{id:issued.operator.id,name:'Пульт Север'});
+ const after=JSON.parse(fs.readFileSync(file,'utf8')).rooms[0].keys[0];assert.deepEqual({...after,name:before.name},before);assert.equal(kicks,0);
+ const session=await req('/api/operator/session','POST',{key:issued.key},false);assert.equal(session.status,200);const jwt=JSON.parse(Buffer.from(session.data.token.split('.')[1],'base64url'));assert.equal(jwt.name,'Пульт Север');assert.equal(jwt.sub,'operator_'+issued.operator.id);
+ const blocked=`${file}.${process.pid}.tmp`;fs.mkdirSync(blocked);assert.equal((await req(endpoint,'PATCH',{name:'Must not persist'})).status,500);fs.rmdirSync(blocked);assert.equal((await req('/api/admin/rooms')).data.rooms[0].keys[0].name,'Пульт Север');
+ await new Promise(r=>server.close(r));server=await createApiServer(config);assert.equal((await req('/api/admin/rooms')).data.rooms[0].keys[0].name,'Пульт Север');
+ assert.equal((await req(endpoint,'DELETE')).status,200);assert.equal((await req(endpoint,'PATCH',{name:'Revoked'})).status,409);
+ assert.equal((await req(`/api/admin/rooms/${room.id}/keys/key_`+'0'.repeat(20),'PATCH',{name:'Missing'})).status,404);
+});

@@ -176,6 +176,16 @@ const server = http.createServer(async (req,res) => {
       room.keys.push(k); persist();
       return reply(res,201,{key:secret,operator:{id:k.id,name:k.name}});
     }
+    if (req.method === 'PATCH' && action === 'keys' && keyId) {
+      const operator=room.keys.find(k=>k.id===keyId);
+      if(!operator)return reply(res,404,{error:'Key not found'});
+      if(operator.revoked)return reply(res,409,{error:'Отозванный ключ нельзя переименовать'});
+      const body=await readBody(req),name=typeof body.name==='string'?body.name.trim():'';
+      if(!name||name.length>60||/[\u0000-\u001f\u007f]/.test(name))return reply(res,400,{error:'Имя оператора: 1–60 символов, без управляющих символов'});
+      const previous=operator.name;operator.name=name;
+      try{persist();}catch(error){operator.name=previous;throw error;}
+      return reply(res,200,{operator:{id:operator.id,name:operator.name}});
+    }
     if (req.method === 'DELETE' && action === 'keys' && keyId) {
       const k = room.keys.find(k => k.id === keyId);
       if (!k) return reply(res,404,{error:'Key not found'});
