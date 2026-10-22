@@ -1,3 +1,4 @@
+import {captureWallSnapshot,wallSnapshotSources} from './wall-snapshot.mjs';
 import {StreamAlerts,AlertTone} from './stream-alert.mjs';
 import {FavoriteSources} from './favorite-sources.mjs';
 import {sourceDisplayName} from './source-name.mjs';
@@ -23,7 +24,7 @@ let rooms=[];let active=null;let session=null;let tiles=new Map();let serverInfo
 let presence=new Map();let presenceTimer=null;let presenceRequest=0;
 const activeRecordings=new Set();
 const recordingMetadata=new Map();let recordingSerial=0;
-const activeSnapshots=new Set();
+const activeSnapshots=new Set();let wallSnapshotPending=false;
 const alertTone=new AlertTone();
 const streamAlerts=new StreamAlerts({play:()=>alertTone.play(),onError:()=>{const checkbox=q('#streamSound');if(checkbox)checkbox.checked=false;const button=q('#testStreamSound');if(button)button.disabled=true;alertTone.stop();recordingNotice('Звуковой сигнал недоступен. Проверьте устройство вывода и включите сигнал снова.',true);}});
 const pendingEvents=new Set();
@@ -167,7 +168,7 @@ function dashboard(){
  <main class="main"><header><div><div id="roomTitle" class="room-title">Выберите комнату</div><span id="roomInfo" class="muted">Мониторинг операторов</span></div>
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
- </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
+ </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallSnapshot" class="minor" type="button" disabled title="Сохранить видимые потоки, названия и состояния в один PNG. До 16 пультов; кадры источников не синхронизированы.">Снимок стены</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
  <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><label class="favorites-filter"><input id="favoritesOnly" type="checkbox"> Только избранные</label><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><label class="favorites-filter" title="Один короткий сигнал при отсутствии новых кадров около 4 секунд. Только после работающего видео; интервал между сигналами 10 секунд. Включается на текущий сеанс."><input id="streamSound" type="checkbox"> Сигнал зависания</label><button id="testStreamSound" class="minor" type="button" disabled>Проверить звук</button><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="renameRoom" class="minor" disabled>Переименовать</button><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  mountPowerSettings(serverInfo?.power);
@@ -192,6 +193,7 @@ function dashboard(){
  q('#allControllers').onclick=()=>selectAllControllers();
  q('#wallOrderButton').onclick=()=>showWallOrder(wallLayout,{getSources:()=>[...tiles.values()].map(t=>({key:t.sourceKey,label:t.label})),onChange:applyGridLayout});
  if(layoutWarning)recordingNotice('Не удалось прочитать настройки видеостены. Используются доступные настройки в памяти.',true);
+ q('#wallSnapshot').onclick=()=>{if(activeSnapshots.size)return;const pending=saveWallSnapshot();activeSnapshots.add(pending);void pending.finally(()=>{activeSnapshots.delete(pending);updateWallSnapshotButton();});};
  q('#wallFullscreen').onclick=()=>q('#content').requestFullscreen?.().catch(displayErr);
  q('#endpoint').textContent=serverInfo?.operatorUrl||'';
  q('#modeInfo').textContent=serverInfo?.mode==='vpn'?'🔒 WireGuard VPN':'LAN / локальная сеть';
@@ -348,7 +350,8 @@ function updateStreamFilterSummary(matched,total=tiles.size){
  const clear=q('#clearStreamSearch');if(clear)clear.disabled=!streamQuery&&!favoritesOnly;
  const empty=q('#streamFilterEmpty');if(empty)empty.hidden=!total||matched>0;
 }
-function updateStreamSummary(){const host=q('#streamSummary');if(!host)return;
+function updateWallSnapshotButton(){const button=q('#wallSnapshot');if(button){button.disabled=wallSnapshotPending||activeSnapshots.size>0||!wallSnapshotSources([...tiles.values()]).length;button.textContent=wallSnapshotPending?'Сохранение…':'Снимок стены';}}
+function updateStreamSummary(){updateWallSnapshotButton();const host=q('#streamSummary');if(!host)return;
  const rows=[...tiles.values()].map(entry=>({hidden:entry.item.hidden,connected:wallMode?wallStates.get(entry.roomId)==='connected':session?.state==='connected',receiving:!entry.track.isMuted&&receiveEnabled({paused:entry.receivePaused,hidden:entry.item.hidden,recordingState:entry.recorder?.state}),sample:entry.health,sampleAt:entry.sampleAt}));
  const summary=summarizeStreams(rows,performance.now());host.textContent=formatStreamSummary(summary);host.dataset.live=String(summary.live);host.dataset.stale=String(summary.stale);host.dataset.paused=String(summary.paused);host.dataset.hidden=String(summary.hidden);host.dataset.receiving=String(summary.receiving);host.dataset.measured=String(summary.measured);
 }
@@ -496,7 +499,7 @@ function updateWallStatus(){
  const placeholder=q('#placeholder');if(placeholder)placeholder.textContent=rooms.length?'Ожидание трансляций со всех пультов…':'Пока нет комнат. Создайте комнату для подключения пультов.';
 }
 function renderEntryHealth(entry){
- entry.snapshotButton.disabled=entry.receivePaused||entry.snapshotPending||entry.video.readyState<2||!entry.video.videoWidth;
+ entry.snapshotButton.disabled=wallSnapshotPending||entry.receivePaused||entry.snapshotPending||entry.video.readyState<2||!entry.video.videoWidth;
  if(entry.recorder?.state==='recording'){const seconds=Math.floor((Date.now()-entry.recorder.startedAt)/1000);entry.recordButton.textContent='■ '+Math.floor(seconds/60).toString().padStart(2,'0')+':'+(seconds%60).toString().padStart(2,'0');}
  const sample=entry.health;
  const connected=wallMode?wallStates.get(entry.roomId)==='connected':session?.state==='connected';
@@ -513,8 +516,23 @@ function recordingNotice(message,error=false){
  notice.className='recording-notice'+(error?' recording-error':'');notice.setAttribute('role','status');notice.replaceChildren();
  const text=document.createElement('span');text.textContent=message;const close=document.createElement('button');close.textContent='×';close.setAttribute('aria-label','Закрыть уведомление');close.onclick=()=>notice.remove();notice.append(text,close);
 }
+async function saveWallSnapshot(){
+ if(wallSnapshotPending)return;wallSnapshotPending=true;updateWallSnapshotButton();for(const entry of tiles.values())renderEntryHealth(entry);
+ try{
+  const sources=wallSnapshotSources([...tiles.values()]).map(entry=>{
+   const connected=wallMode?wallStates.get(entry.roomId)==='connected':session?.state==='connected';
+   const state=entry.receivePaused?'paused':!connected?'offline':entry.health?.state||'waiting';
+   const status={paused:'Приём приостановлен · последний доступный кадр',offline:'Нет связи · последний доступный кадр',waiting:'Ожидание кадров',live:'LIVE · принимаемое видео',stale:'Нет новых кадров · '+Math.floor((entry.health?.ageMs||0)/1000)+' с'}[state]||'Ожидание кадров';
+   return {video:entry.video,label:entry.label,state,status};
+  });
+  const frame=await captureWallSnapshot(sources,{columns:gridColumns});
+  const result=await window.streamControl.saveSnapshot('Видеостена',frame.png);
+  if(result?.saved)recordingNotice('Снимок видеостены сохранён: '+result.filePath+' · '+frame.count+' пульт(ов) · '+result.width+'×'+result.height);
+ }catch(error){recordingNotice('Не удалось сохранить видеостену: '+(error.message||String(error)),true);}
+ finally{wallSnapshotPending=false;for(const entry of tiles.values())renderEntryHealth(entry);updateWallSnapshotButton();}
+}
 async function saveTileSnapshot(entry){
- if(entry.snapshotPending||entry.receivePaused)return;
+ if(wallSnapshotPending||entry.snapshotPending||entry.receivePaused)return;
  entry.snapshotPending=true;entry.snapshotButton.disabled=true;entry.snapshotButton.textContent='Сохранение…';
  const staleAge=entry.health?.state==='stale'?Math.floor(entry.health.ageMs/1000):null;
  try{const frame=await captureFrame(entry.video);const result=await window.streamControl.saveSnapshot(entry.label,frame.png);

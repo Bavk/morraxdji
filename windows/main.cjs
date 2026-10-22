@@ -223,7 +223,7 @@ ipcMain.handle('snapshot:save',async(event,label,png)=>{
  snapshotOwners.add(owner);
  try{
   validatePng(png);
-  const result=await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender),{title:'Сохранить кадр с пульта',defaultPath:path.join(app.getPath('pictures'),snapshotName(label)),filters:[{name:'Изображение PNG',extensions:['png']}]});
+  const result=await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender),{title:'Сохранить PNG-снимок',defaultPath:path.join(app.getPath('pictures'),snapshotName(label)),filters:[{name:'Изображение PNG',extensions:['png']}]});
   if(result.canceled||!result.filePath||event.sender.isDestroyed())return {canceled:true};
   return await snapshots.save(result.filePath,png);
  }finally{snapshotOwners.delete(owner);}
