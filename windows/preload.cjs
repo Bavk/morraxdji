@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('streamControl',Object.freeze({
   playRecording:id=>call('archive:play',id),
   revealRecording:id=>call('archive:reveal',id),
   forgetRecording:id=>call('archive:forget',id),
+  saveSnapshot:(label,png)=>call('snapshot:save',label,png),
   recoverServer:()=>call('server:recover'),
   cleanupRevokedVpn:()=>call('vpn:cleanup'),
   vpnStatus:()=>call('vpn:status'),

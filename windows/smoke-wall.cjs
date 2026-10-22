@@ -1,9 +1,12 @@
 // Actual two-room video decoding in the real renderer, using synthetic canvas publishers.
-const {app,BrowserWindow,ipcMain,protocol}=require('electron');
+const {app,BrowserWindow,ipcMain,protocol,nativeImage}=require('electron');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),assert=require('node:assert/strict');
 const {NativeLiveKit,binaryPath}=require('./native-livekit.cjs');
 const {renderLivekitConfig}=require('./compose-config.cjs');
 const {RecordingStore}=require('./recording-store.cjs');
+const {SnapshotStore}=require('./snapshot-store.cjs');
+const savedSnapshots=[];let snapshotAttempts=0,snapshotIndex=0,cancelNextSnapshot=false,snapshotDelayMs=0;
+const snapshots=new SnapshotStore({decode:(buffer,size)=>{const image=nativeImage.createFromBuffer(buffer);assert.equal(image.isEmpty(),false);assert.deepEqual(image.getSize(),size);}});
 const {RecordingArchive,registerArchiveScheme,handleArchiveProtocol}=require('./recording-archive.cjs');
 registerArchiveScheme(protocol);
 const recordingStore=new RecordingStore({onSaved:result=>archive.add(result)});const savedRecordings=[];const recordingChunks=new Map();let recordingIndex=0,playback;
@@ -43,6 +46,11 @@ app.whenReady().then(async()=>{
  ipcMain.handle('room:view',(_,id)=>call(`/api/admin/rooms/${id}/viewer`,'POST',{}));
  ipcMain.handle('room:presence',(_,id)=>call(`/api/admin/rooms/${id}/presence`));
  ipcMain.handle('recording:begin',(event,label)=>recordingStore.begin(event.sender.id,path.join(dir,`test-recording-${++recordingIndex}.webm`),{label}));
+ ipcMain.handle('snapshot:save',async(_,label,png)=>{
+  snapshotAttempts++;if(cancelNextSnapshot){cancelNextSnapshot=false;return {canceled:true};}
+  if(snapshotDelayMs)await new Promise(resolve=>setTimeout(resolve,snapshotDelayMs));
+  const result=await snapshots.save(path.join(dir,'test-frame-'+(++snapshotIndex)+'.png'),png);savedSnapshots.push(result);return result;
+ });
  ipcMain.handle('archive:list',()=>archive.list());
  ipcMain.handle('archive:play',(_,id)=>archive.playback(id));
  ipcMain.handle('archive:reveal',async(_,id)=>{revealed.push(await archive.revealPath(id));return {shown:true};});
@@ -68,11 +76,21 @@ app.whenReady().then(async()=>{
  await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  fs.mkdirSync(path.join(__dirname,'release'),{recursive:true});
  fs.writeFileSync(path.join(__dirname,'release/wall-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
+ await until(()=>viewer.webContents.executeJavaScript("[...document.querySelectorAll('.snapshot-button')].length===2&&[...document.querySelectorAll('.snapshot-button')].every(b=>!b.disabled)"),'snapshot buttons ready');
+ await viewer.webContents.executeJavaScript("document.querySelector('.tile video').style.width='160px';document.querySelector('.snapshot-button').click()");
+ await until(()=>savedSnapshots.length===1,'PNG snapshot saved');assert.equal(savedSnapshots[0].width,640);assert.equal(savedSnapshots[0].height,360);
+ const decodedSnapshot=nativeImage.createFromPath(savedSnapshots[0].filePath);assert.deepEqual(decodedSnapshot.getSize(),{width:640,height:360});assert.equal(decodedSnapshot.isEmpty(),false);
+ fs.copyFileSync(savedSnapshots[0].filePath,path.join(__dirname,'release/frame-snapshot.png'));
+ await viewer.webContents.executeJavaScript("document.querySelector('.tile video').style.width=''");
+ cancelNextSnapshot=true;await viewer.webContents.executeJavaScript("document.querySelectorAll('.snapshot-button')[1].click()");
+ await until(async()=>snapshotAttempts===2&&await viewer.webContents.executeJavaScript("!document.querySelectorAll('.snapshot-button')[1].disabled"),'canceled snapshot returns control');assert.equal(savedSnapshots.length,1);
  await publisher.webContents.executeJavaScript('USCWallPublisher.pause(0)');
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile.is-stale').length===1 && document.querySelectorAll('.stream-stale:not([hidden])').length===1"),'frozen source warning',15000);
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile:not(.is-stale) .online').length"),1);
  await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  fs.writeFileSync(path.join(__dirname,'release/health-stale-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
+ await viewer.webContents.executeJavaScript("document.querySelector('.snapshot-button').click()");await until(()=>savedSnapshots.length===2,'last available frame saved');
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelector('#recordingNotice').textContent.includes('последний доступный кадр')"),'stale snapshot identified');
  await publisher.webContents.executeJavaScript('USCWallPublisher.resume(0)');
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile.is-stale').length===0 && [...document.querySelectorAll('.tile .online')].every(e=>e.textContent.includes('LIVE'))"),'fresh frames clear warning');
  await viewer.webContents.executeJavaScript("document.querySelectorAll('.record-button').forEach(b=>b.click())");
@@ -122,8 +140,10 @@ app.whenReady().then(async()=>{
  await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('.record-button'))"),'single room video');
  await viewer.webContents.executeJavaScript("document.querySelector('.record-button').click()");
  await until(()=>recordingStore.sessions.size===1&&[...recordingStore.sessions.keys()].some(id=>(recordingChunks.get(id)||0)>=2),'recording before close');
+ snapshotDelayMs=300;await viewer.webContents.executeJavaScript("document.querySelector('.snapshot-button').click()");
  const closed=new Promise(resolve=>viewer.once('closed',resolve));viewer.close();await closed;
+ assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===3,'final chunk saved before window closes');await verifyRecording(savedRecordings[2]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal');
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

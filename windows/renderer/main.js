@@ -1,5 +1,6 @@
 import { Room,RoomEvent,Track } from 'livekit-client';
 import './style.css';
+import {captureFrame} from './frame-snapshot.mjs';
 import {showRecordingArchive} from './recording-archive-view.mjs';
 import {StreamRecorder} from './stream-recorder.mjs';
 import {monitorStream,formatHealth} from './stream-health.mjs';
@@ -10,6 +11,7 @@ const el=document.querySelector('#app');
 let rooms=[];let active=null;let session=null;let tiles=new Map();let serverInfo=null;
 let presence=new Map();let presenceTimer=null;let presenceRequest=0;
 const activeRecordings=new Set();
+const activeSnapshots=new Set();
 let closingRecordings=false;
 let wallMode=false;
 let wallStates=new Map();
@@ -325,9 +327,13 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  metrics.title='Параметры приёма на этом Windows-ПК. RTT — путь до видеосервера и обратно, не задержка изображения с пульта.';
  warning.title='Кадр мог перестать обновляться из-за неподвижного экрана, паузы захвата или проблем связи.';
  const recordButton=document.createElement('button');recordButton.className='record-button';recordButton.textContent='● Запись';recordButton.title='Сохранить видео этого пульта в WebM без звука';
- visual.append(video,warning);footer.append(n,badge,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
+ const snapshotButton=document.createElement('button');snapshotButton.className='snapshot-button';snapshotButton.textContent='Кадр';snapshotButton.disabled=true;snapshotButton.title='Сохранить кадр в PNG в исходном разрешении, без интерфейса Windows';
+ visual.append(video,warning);footer.append(n,badge,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
  grid.append(item);track.attach(video);
- const entry={item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,manualSubscription:false};tiles.set(id,entry);
+ const entry={item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,manualSubscription:false,snapshotButton,video,label:n.textContent,snapshotPending:false};tiles.set(id,entry);
+ snapshotButton.onclick=()=>{
+  const pending=saveTileSnapshot(entry);activeSnapshots.add(pending);void pending.then(()=>activeSnapshots.delete(pending),()=>activeSnapshots.delete(pending));
+ };
  recordButton.onclick=async()=>{
   if(entry.recorder&&['recording','stopping'].includes(entry.recorder.state)){await entry.recorder.stop();return;}
   if(entry.recorder?.state==='choosing')return;
@@ -357,7 +363,7 @@ function detachTrack(track,pub,p,roomId=active){const id=`${roomId}:${p.identity
 function removeParticipant(p,roomId=active){for(const [id,t] of tiles){if(id.startsWith(roomId+':'+p.identity+':')){void t.recorder?.stop();t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
 function updatePlaceholder(){const placeholder=q('#placeholder');if(placeholder)placeholder.hidden=tiles.size>0;if(wallMode)updateWallStatus();}
 window.addEventListener('beforeunload',event=>{
- if(activeRecordings.size&&!closingRecordings){event.preventDefault();event.returnValue=false;void Promise.allSettled([...activeRecordings].map(r=>r.stop())).then(()=>{closingRecordings=true;window.close();});return;}
+ if((activeRecordings.size||activeSnapshots.size)&&!closingRecordings){event.preventDefault();event.returnValue=false;void Promise.allSettled([...activeRecordings].map(r=>r.stop()).concat([...activeSnapshots])).then(()=>{closingRecordings=true;window.close();});return;}
  wall.stop();videoTest.stop(true);reconnect.stop();session?.disconnect();});
 async function selectAllControllers(){
  await disconnect();wallMode=true;active=null;wallStates.clear();
@@ -383,6 +389,7 @@ function updateWallStatus(){
  const placeholder=q('#placeholder');if(placeholder)placeholder.textContent=rooms.length?'Ожидание трансляций со всех пультов…':'Пока нет комнат. Создайте комнату для подключения пультов.';
 }
 function renderEntryHealth(entry){
+ entry.snapshotButton.disabled=entry.snapshotPending||entry.video.readyState<2||!entry.video.videoWidth;
  if(entry.recorder?.state==='recording'){const seconds=Math.floor((Date.now()-entry.recorder.startedAt)/1000);entry.recordButton.textContent='■ '+Math.floor(seconds/60).toString().padStart(2,'0')+':'+(seconds%60).toString().padStart(2,'0');}
  const sample=entry.health;
  const connected=wallMode?wallStates.get(entry.roomId)==='connected':session?.state==='connected';
@@ -397,5 +404,14 @@ function recordingNotice(message,error=false){
  let notice=document.querySelector('#recordingNotice');if(!notice){notice=document.createElement('div');notice.id='recordingNotice';document.body.append(notice);}
  notice.className='recording-notice'+(error?' recording-error':'');notice.setAttribute('role','status');notice.replaceChildren();
  const text=document.createElement('span');text.textContent=message;const close=document.createElement('button');close.textContent='×';close.setAttribute('aria-label','Закрыть уведомление');close.onclick=()=>notice.remove();notice.append(text,close);
+}
+async function saveTileSnapshot(entry){
+ if(entry.snapshotPending)return;
+ entry.snapshotPending=true;entry.snapshotButton.disabled=true;entry.snapshotButton.textContent='Сохранение…';
+ const staleAge=entry.health?.state==='stale'?Math.floor(entry.health.ageMs/1000):null;
+ try{const frame=await captureFrame(entry.video);const result=await window.streamControl.saveSnapshot(entry.label,frame.png);
+  if(result?.saved)recordingNotice((staleAge===null?'Кадр сохранён':'Сохранён последний доступный кадр (без обновления '+staleAge+' с)')+': '+result.filePath+' · '+result.width+'×'+result.height);
+ }catch(error){recordingNotice('Не удалось сохранить кадр: '+(error.message||String(error)),true);}
+ finally{entry.snapshotPending=false;entry.snapshotButton.textContent='Кадр';entry.snapshotButton.disabled=entry.video.readyState<2||!entry.video.videoWidth;}
 }
 startup();

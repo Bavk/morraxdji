@@ -1,6 +1,6 @@
 // Windows owns the API lifecycle and the bundled native LiveKit SFU.
 // No cloud LiveKit credentials or external API server are required for LAN testing.
-const {app, BrowserWindow, ipcMain, safeStorage, dialog, protocol, shell} = require('electron');
+const {app, BrowserWindow, ipcMain, safeStorage, dialog, protocol, shell, nativeImage} = require('electron');
 const {manager:makeVpnManager} = require('./vpn-manager.cjs');
 const {cleanupStalePeers,deleteRoomThenCleanup} = require('./room-lifecycle.cjs');
 const {makeDiagnosticReport} = require('./diagnostic-report.cjs');
@@ -14,6 +14,12 @@ registerArchiveScheme(protocol);
 let archiveInstance;
 function recordingArchive(){return archiveInstance??=new RecordingArchive(path.join(app.getPath('userData'),'recordings-index.json'));}
 const recordings=new RecordingStore({onSaved:result=>recordingArchive().add(result)});
+const {SnapshotStore,validatePng,snapshotName}=require('./snapshot-store.cjs');
+const snapshotOwners=new Set();
+const snapshots=new SnapshotStore({decode:(buffer,size)=>{
+ const image=nativeImage.createFromBuffer(buffer),actual=image.getSize();
+ if(image.isEmpty()||actual.width!==size.width||actual.height!==size.height)throw Error('Повреждённый PNG-снимок');
+}});
 const {findWireGuard,installTunnel} = require('./wireguard-service.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -198,6 +204,17 @@ ipcMain.handle('recording:begin',async(event,label)=>{
 });
 ipcMain.handle('recording:append',(event,id,bytes)=>recordings.append(event.sender.id,id,bytes));
 ipcMain.handle('recording:finish',(event,id)=>recordings.finish(event.sender.id,id));
+ipcMain.handle('snapshot:save',async(event,label,png)=>{
+ const owner=event.sender.id;if(snapshotOwners.has(owner))throw Error('Дождитесь сохранения предыдущего снимка');
+ if(typeof label!=='string'||label.length>300)throw Error('Некорректное имя снимка');
+ snapshotOwners.add(owner);
+ try{
+  validatePng(png);
+  const result=await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender),{title:'Сохранить кадр с пульта',defaultPath:path.join(app.getPath('pictures'),snapshotName(label)),filters:[{name:'Изображение PNG',extensions:['png']}]});
+  if(result.canceled||!result.filePath||event.sender.isDestroyed())return {canceled:true};
+  return await snapshots.save(result.filePath,png);
+ }finally{snapshotOwners.delete(owner);}
+});
 ipcMain.handle('archive:list',()=>recordingArchive().list());
 ipcMain.handle('archive:play',(_,id)=>recordingArchive().playback(id));
 ipcMain.handle('archive:reveal',async(_,id)=>{shell.showItemInFolder(await recordingArchive().revealPath(id));return {shown:true};});
