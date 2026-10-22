@@ -35,4 +35,9 @@
 .tile:fullscreen .tile-footer{background:#1b2940}
 .tile-reconnecting{color:#ffcc72}
 [hidden]{display:none!important}
+.tile-visual{position:relative;background:#070d16}
+.tile-metrics{padding:8px 14px;border-top:1px solid #2c405d;color:#a9bdd8;font-size:11px;line-height:1.6;font-variant-numeric:tabular-nums;min-height:34px}
+.stream-stale{position:absolute;left:12px;right:12px;top:12px;padding:10px 12px;border:1px solid #ca8a34;border-radius:8px;background:#3b281bea;color:#ffdc9f;font-size:13px;font-weight:600;pointer-events:none}
+.tile.is-stale{border-color:#ca8a34}
+.tile:fullscreen .tile-visual video{height:calc(100vh - 90px)}
 @media(max-width:850px){.stream-grid.fixed-grid{grid-template-columns:repeat(min(var(--grid-columns),2),minmax(0,1fr))}}

@@ -91,9 +91,12 @@ export function createTestPattern({documentObject=document,setIntervalFn=setInte
     tick++;
   };
   draw();
-  const timer=setIntervalFn(draw,100);
+  let timer=setIntervalFn(draw,100);let stopped=false;
   const media=canvas.captureStream(10);
   const track=media.getVideoTracks()[0];
   if(!track){clearIntervalFn(timer);throw Error('Chromium не создал видеотрек');}
-  return {track,stop(){clearIntervalFn(timer);media.getTracks().forEach(t=>t.stop());}};
+  return {track,
+    pause(){if(timer!==null){clearIntervalFn(timer);timer=null;}},
+    resume(){if(!stopped&&timer===null){draw();timer=setIntervalFn(draw,100);}},
+    stop(){stopped=true;if(timer!==null)clearIntervalFn(timer);timer=null;media.getTracks().forEach(t=>t.stop());}};
 }

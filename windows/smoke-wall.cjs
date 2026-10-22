@@ -49,9 +49,17 @@ app.whenReady().then(async()=>{
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length===2 && [...document.querySelectorAll('.tile video')].every(v=>v.videoWidth>0 && v.readyState>=2 && v.getVideoPlaybackQuality().totalVideoFrames>=3)"),'two decoded video streams');
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.wall-room-state.connected').length"),2);
  assert.equal(await viewer.webContents.executeJavaScript("getComputedStyle(document.querySelector('#placeholder')).display"),'none');
+ await until(()=>viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile-metrics')].length===2 && [...document.querySelectorAll('.tile-metrics')].every(e=>/[1-9][0-9]* FPS/.test(e.textContent)&&e.textContent.includes('Мбит/с'))"),'real receiver metrics');
  await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  fs.mkdirSync(path.join(__dirname,'release'),{recursive:true});
  fs.writeFileSync(path.join(__dirname,'release/wall-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
+ await publisher.webContents.executeJavaScript('USCWallPublisher.pause(0)');
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile.is-stale').length===1 && document.querySelectorAll('.stream-stale:not([hidden])').length===1"),'frozen source warning',15000);
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile:not(.is-stale) .online').length"),1);
+ await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+ fs.writeFileSync(path.join(__dirname,'release/health-stale-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
+ await publisher.webContents.executeJavaScript('USCWallPublisher.resume(0)');
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile.is-stale').length===0 && [...document.querySelectorAll('.tile .online')].every(e=>e.textContent.includes('LIVE'))"),'fresh frames clear warning');
  await viewer.webContents.executeJavaScript("document.querySelector('.focus-button').click()");
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile:not([hidden])').length"),1);
  await viewer.webContents.executeJavaScript("document.querySelector('.tile:not([hidden]) .focus-button').click()");
@@ -59,5 +67,5 @@ app.whenReady().then(async()=>{
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length===1 && document.querySelector('.tile video').videoWidth>0"),'second stream survives first publisher disconnect');
  await viewer.webContents.executeJavaScript("document.querySelector('[data-room]').click()");
  await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('.keys-panel').hidden && document.querySelector('#wallRoomStates').hidden"),'return to single room');
- console.log('USC_WALL_SMOKE_PASS: two decoded rooms, focus/grid, independent disconnect, return to room');
+ console.log('USC_WALL_SMOKE_PASS: two decoded rooms, receiver metrics, frozen-source warning/recovery, focus/grid, independent disconnect, return to room');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

@@ -9,3 +9,5 @@ export async function start(configs){
  }
 }
 export async function stop(index){const p=publishers[index];p.pattern.stop();await p.room.disconnect();}
+export function pause(index){publishers[index].pattern.pause();}
+export function resume(index){publishers[index].pattern.resume();}

@@ -1,5 +1,6 @@
 import { Room,RoomEvent,Track } from 'livekit-client';
 import './style.css';
+import {monitorStream,formatHealth} from './stream-health.mjs';
 import {MultiRoomViewer} from './multi-room-viewer.mjs';
 import {ViewerReconnect} from './viewer-reconnect.mjs';
 import {LoopbackTest,createTestPattern} from './loopback-test.mjs';
@@ -237,7 +238,7 @@ async function refresh(fallback=true){try{const data=await window.streamControl.
  paintRoomList();if(wallMode){await wall.sync(rooms);updateWallStatus();}else if(active){await pollPresence();if(!session)await connectRoom(active);}}catch(err){displayErr(err);}}
 async function selectRoom(id){if(!wallMode&&active===id&&session)return;await disconnect();wallMode=false;wallStates.clear();q('#wallRoomStates').hidden=true;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
 function clearTiles(){
- for(const entry of tiles.values()){entry.track.detach();entry.item.remove();}
+ for(const entry of tiles.values()){entry.stopMonitor?.();entry.track.detach();entry.item.remove();}
  tiles.clear();focusedTile=null;
 }
 async function disconnect(){
@@ -308,17 +309,26 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  const item=document.createElement('article');item.className='tile';
  const video=document.createElement('video');video.autoplay=true;video.playsInline=true;video.muted=true;
  const footer=document.createElement('div');footer.className='tile-footer';const n=document.createElement('span');n.textContent=(roomName?roomName+' · ':'')+(p.name||p.identity);n.title=n.textContent;
- const badge=document.createElement('span');badge.className='online';badge.textContent='● LIVE';
+ const badge=document.createElement('span');badge.className='online';badge.textContent='Ожидание видео';
  const focus=document.createElement('button');focus.className='focus-button';focus.textContent='Крупно';focus.title='Увеличить выбранный поток';focus.onclick=()=>focusTile(id);
- footer.append(n,badge,focus);item.append(video,footer);video.ondblclick=()=>item.requestFullscreen?.();
- grid.append(item);track.attach(video);tiles.set(id,{item,track,focus,roomId,badge});if(p.identity===videoTest.identity){
+ const visual=document.createElement('div');visual.className='tile-visual';
+ const warning=document.createElement('div');warning.className='stream-stale';warning.hidden=true;warning.setAttribute('role','status');
+ const metrics=document.createElement('div');metrics.className='tile-metrics';metrics.textContent='Получение статистики…';
+ metrics.title='Параметры приёма на этом Windows-ПК. RTT — путь до видеосервера и обратно, не задержка изображения с пульта.';
+ warning.title='Кадр мог перестать обновляться из-за неподвижного экрана, паузы захвата или проблем связи.';
+ visual.append(video,warning);footer.append(n,badge,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
+ grid.append(item);track.attach(video);
+ const entry={item,track,focus,roomId,badge,warning,metrics,health:null};tiles.set(id,entry);
+ entry.stopMonitor=monitorStream({track,video,isActive:()=>!item.hidden&&!track.isMuted,onUpdate:sample=>{
+  if(tiles.get(id)!==entry)return;entry.health=sample;renderEntryHealth(entry);if(wallMode)updateWallStatus();
+ }});if(p.identity===videoTest.identity){
   if(typeof video.requestVideoFrameCallback==='function')video.requestVideoFrameCallback(()=>videoTest.onVideoFrame(p.identity));
   else video.addEventListener('playing',()=>videoTest.onVideoFrame(p.identity),{once:true});
  }
  applyGridLayout();updatePlaceholder();
 }
-function detachTrack(track,pub,p,roomId=active){const id=`${roomId}:${p.identity}:${pub.trackSid}`;const obj=tiles.get(id);if(obj){obj.track.detach();obj.item.remove();tiles.delete(id);}if(focusedTile===id)focusedTile=null;applyGridLayout();updatePlaceholder();}
-function removeParticipant(p,roomId=active){for(const [id,t] of tiles){if(id.startsWith(roomId+':'+p.identity+':')){t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
+function detachTrack(track,pub,p,roomId=active){const id=`${roomId}:${p.identity}:${pub.trackSid}`;const obj=tiles.get(id);if(obj){obj.stopMonitor?.();obj.track.detach();obj.item.remove();tiles.delete(id);}if(focusedTile===id)focusedTile=null;applyGridLayout();updatePlaceholder();}
+function removeParticipant(p,roomId=active){for(const [id,t] of tiles){if(id.startsWith(roomId+':'+p.identity+':')){t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
 function updatePlaceholder(){const placeholder=q('#placeholder');if(placeholder)placeholder.hidden=tiles.size>0;if(wallMode)updateWallStatus();}
 window.addEventListener('beforeunload',()=>{wall.stop();videoTest.stop(true);reconnect.stop();session?.disconnect();});
 async function selectAllControllers(){
@@ -327,24 +337,31 @@ async function selectAllControllers(){
  applyGridLayout();paintRoomList();await wall.sync(rooms);updateWallStatus();
 }
 function removeRoomTiles(roomId){
- for(const [id,t] of tiles)if(t.roomId===roomId){t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}
+ for(const [id,t] of tiles)if(t.roomId===roomId){t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}
  applyGridLayout();updatePlaceholder();
 }
 function updateWallStatus(){
  if(!wallMode)return;
- for(const entry of tiles.values()){
-  const connected=wallStates.get(entry.roomId)==='connected';
-  entry.badge.textContent=connected?'● LIVE':'↻ Восстановление связи';
-  entry.badge.classList.toggle('tile-reconnecting',!connected);
- }
+ for(const entry of tiles.values())renderEntryHealth(entry);
  const connected=rooms.filter(r=>wallStates.get(r.id)==='connected').length;
  const waiting=rooms.filter(r=>wallStates.get(r.id)==='reconnecting').length;
  const info=q('#roomInfo');if(info)info.textContent='Общая видеостена · '+rooms.length+' комнат';
- const summary=q('#presenceSummary');if(summary)summary.textContent='Видеопотоков: '+tiles.size+' · Комнат подключено: '+connected+'/'+rooms.length+(waiting?' · Переподключение: '+waiting:'');
+ const stale=[...tiles.values()].filter(t=>!t.item.hidden&&t.health?.state==='stale').length;
+ const summary=q('#presenceSummary');if(summary)summary.textContent='Видеопотоков: '+tiles.size+' · Комнат подключено: '+connected+'/'+rooms.length+(waiting?' · Переподключение: '+waiting:'')+(stale?' · Без новых кадров: '+stale:'');
  const states=q('#wallRoomStates');if(states){states.hidden=false;states.innerHTML=rooms.map(r=>{
   const state=wallStates.get(r.id)||'connecting';const labels={connected:'подключена',connecting:'подключение…',reconnecting:'восстановление…'};
   return '<span class="wall-room-state '+state+'">'+escapeHtml(r.name)+' · '+labels[state]+'</span>';
  }).join('')||'<span class="muted">Создайте комнату и подключите пульт.</span>';}
  const placeholder=q('#placeholder');if(placeholder)placeholder.textContent=rooms.length?'Ожидание трансляций со всех пультов…':'Пока нет комнат. Создайте комнату для подключения пультов.';
+}
+function renderEntryHealth(entry){
+ const sample=entry.health;
+ const connected=wallMode?wallStates.get(entry.roomId)==='connected':session?.state==='connected';
+ const stale=connected&&sample?.state==='stale';
+ entry.badge.textContent=!connected?'↻ Восстановление связи':stale?'⚠ Нет новых кадров':sample?.state==='live'?'● LIVE':sample?.state==='paused'?'Пауза':'Ожидание видео';
+ entry.badge.classList.toggle('tile-reconnecting',!connected||stale);
+ entry.item.classList.toggle('is-stale',Boolean(stale));entry.warning.hidden=!stale;
+ if(stale)entry.warning.textContent='Нет новых кадров · '+Math.floor(sample.ageMs/1000)+' с';
+ if(sample)entry.metrics.textContent=sample.state==='paused'?'Приём приостановлен для скрытого или выключенного потока':formatHealth(sample);
 }
 startup();
