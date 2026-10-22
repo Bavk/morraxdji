@@ -1,6 +1,6 @@
 {
   "name": "universal-stream-control-windows",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
   "main": "main.cjs",
   "scripts": {
@@ -9,7 +9,8 @@
     "dev": "npm run build:ui && electron .",
     "dist:win": "npm run build:ui && electron-builder --win nsis",
     "audit": "node ../scripts/source-audit.mjs",
-    "smoke:ui": "electron smoke.cjs"
+    "smoke:ui": "electron smoke.cjs",
+    "smoke:wall": "electron smoke-wall.cjs"
   },
   "dependencies": {
     "livekit-client": "^2.15.0"

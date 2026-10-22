@@ -54,6 +54,9 @@ jobs:
       - name: Smoke test real Electron renderer and preload
         working-directory: windows
         run: npm run smoke:ui
+      - name: Decode two simultaneous FPV test streams in the real video wall
+        working-directory: windows
+        run: npm run smoke:wall
       - name: Package unsigned EXE
         working-directory: windows
         run: npm run dist:win

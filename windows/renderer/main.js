@@ -1,10 +1,13 @@
 import { Room,RoomEvent,Track } from 'livekit-client';
 import './style.css';
+import {MultiRoomViewer} from './multi-room-viewer.mjs';
 import {ViewerReconnect} from './viewer-reconnect.mjs';
 import {LoopbackTest,createTestPattern} from './loopback-test.mjs';
 const el=document.querySelector('#app');
 let rooms=[];let active=null;let session=null;let tiles=new Map();let serverInfo=null;
 let presence=new Map();let presenceTimer=null;let presenceRequest=0;
+let wallMode=false;
+let wallStates=new Map();
 let connectionSerial=0; let focusedTile=null;
 let gridColumns=Number(localStorage.getItem('usc-grid-columns'))||0;
 const reconnect=new ViewerReconnect({
@@ -16,6 +19,13 @@ const videoTest=new LoopbackTest({
  createRoom:()=>new Room(),createPattern:()=>createTestPattern(),screenShareSource:Track.Source.ScreenShare,
  onStatus:message=>{const x=q('#selfTestStatus');if(x)x.textContent=message;},
  onStateChange:active=>{const b=q('#selfTest');if(b)b.textContent=active?'■ Остановить тест':'🧪 Проверить видео';}
+});
+const wall=new MultiRoomViewer({
+ createRoom:()=>new Room({adaptiveStream:true}),getConfig:id=>window.streamControl.viewRoom(id),events:RoomEvent,
+ onTrack:(track,pub,p,room)=>attachTrack(track,pub,p,room.id,room.name),
+ onUntrack:(track,pub,p,room)=>detachTrack(track,pub,p,room.id),
+ onLeave:(p,room)=>removeParticipant(p,room.id),onClear:id=>removeRoomTiles(id),
+ onState:(room,state)=>{wallStates.set(room.id,state);updateWallStatus();}
 });
 const escapeHtml=(text)=>String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const showError=(err)=>{const e=q('#error');if(e){e.textContent=err.message||String(err);e.hidden=false;}else alert(err.message||String(err));};
@@ -108,7 +118,7 @@ function dashboard(){
  if(presenceTimer)clearInterval(presenceTimer);
  presenceTimer=setInterval(()=>{if(active)pollPresence();},8000);
  el.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand">◉ UNIVERSAL STREAM CONTROL</div><div class="sectionlabel">КОМНАТЫ</div>
- <div id="roomList" class="room-list"></div><button id="addRoom" class="minor">+ Создать комнату</button>
+ <button id="allControllers" class="minor wall-button">▦ Все пульты</button><div id="roomList" class="room-list"></div><button id="addRoom" class="minor">+ Создать комнату</button>
  <div class="sidebar-footer"><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
  <div id="endpoint" class="endpoint"></div><div id="pendingRoomCleanup" class="muted" role="status"></div><button id="copyUrl" class="minor">Копировать адрес</button>
  <button id="reconcileRevoked" class="minor">Проверить отключения операторов</button>
@@ -117,10 +127,12 @@ function dashboard(){
  <button id="stopServer" class="danger">Остановить сервер</button><br/>Только видеотрансляции<br/>Звук и чат отключены</div></aside>
  <main class="main"><header><div><div id="roomTitle" class="room-title">Выберите комнату</div><span id="roomInfo" class="muted">Мониторинг операторов</span></div>
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
- <option value="0">Авто</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
- </select></label><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
- <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
+ <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
+ </select></label><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
+ <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
+ q('#allControllers').onclick=()=>selectAllControllers();
+ q('#wallFullscreen').onclick=()=>q('#content').requestFullscreen?.().catch(displayErr);
  q('#endpoint').textContent=serverInfo?.operatorUrl||'';
  q('#modeInfo').textContent=serverInfo?.mode==='vpn'?'🔒 WireGuard VPN':'LAN / локальная сеть';
  q('#copyUrl').onclick=()=>navigator.clipboard.writeText(serverInfo?.operatorUrl||'').catch(err=>displayErr(err));
@@ -149,7 +161,7 @@ function dashboard(){
  };
  q('#stopServer').onclick=async()=>{
   if(!confirm('Остановить все трансляции и локальный сервер?'))return;
-  try{await disconnect();await window.streamControl.stopServer();rooms=[];active=null;serverInfo=null;startScreen();}
+  try{await disconnect();await window.streamControl.stopServer();rooms=[];active=null;wallMode=false;serverInfo=null;startScreen();}
   catch(err){displayErr(err);}
  };
  q('#addRoom').onclick=async()=>{const name=prompt('Название новой комнаты');if(!name?.trim())return;try{await window.streamControl.createRoom(name.trim());await refresh();}catch(err){displayErr(err);}};
@@ -169,7 +181,7 @@ function dashboard(){
    }catch(err){displayErr(err);videoTest.stop(true);button.textContent='🧪 Проверить видео';}
    finally{button.disabled=false;}
  };
- q('#gridColumns').value=String([0,2,3,4].includes(gridColumns)?gridColumns:0);
+ q('#gridColumns').value=String([0,1,2,3,4].includes(gridColumns)?gridColumns:0);
  q('#gridColumns').onchange=e=>{gridColumns=Number(e.target.value);localStorage.setItem('usc-grid-columns',String(gridColumns));applyGridLayout();};
  q('#refresh').onclick=()=>refresh(false);
  q('#deleteRoom').onclick=async()=>{if(!active)return;const r=rooms.find(x=>x.id===active);if(!confirm(`Удалить комнату «${r?.name}»?`))return;
@@ -191,6 +203,9 @@ function paintRoomList(){
  q('#roomList').innerHTML=rooms.map(r=>`<button class="room ${active===r.id?'selected':''}" data-room="${r.id}">
  <span>▣</span><span>${escapeHtml(r.name)}</span><small>${r.keys.filter(k=>!k.revoked).length}</small></button>`).join('')||'<p class="muted">Пока нет комнат</p>';
  q('#roomList').querySelectorAll('[data-room]').forEach(btn=>btn.onclick=()=>selectRoom(btn.dataset.room));
+ q('#allControllers').classList.toggle('selected',wallMode);
+ const panel=q('.keys-panel');if(panel)panel.hidden=wallMode;
+ if(wallMode){q('#roomTitle').textContent='Все ФПВ-пульты';q('#newKey').disabled=true;q('#deleteRoom').disabled=true;q('#selfTest').disabled=true;q('#keys').textContent='';updateWallStatus();return;}
  const r=rooms.find(r=>r.id===active);q('#newKey').disabled=!r;q('#deleteRoom').disabled=!r;
  q('#selfTest').disabled=!r;
  q('#roomTitle').textContent=r?.name||'Выберите комнату';q('#roomInfo').textContent=r?'Операторы в комнате — трансляция экрана':'Мониторинг операторов';
@@ -218,14 +233,15 @@ async function pollPresence(){
 }
 async function refresh(fallback=true){try{const data=await window.streamControl.rooms();rooms=data.rooms;
  const pending=q('#pendingRoomCleanup');if(pending)pending.textContent=data.pendingDeletedRooms?`Защита удалённых комнат (старые токены): ${data.pendingDeletedRooms}`:'';
- if(!rooms.some(r=>r.id===active)){active=fallback&&rooms.length?rooms[0].id:null;}
- paintRoomList();if(active){await pollPresence();if(!session)await connectRoom(active);}}catch(err){displayErr(err);}}
-async function selectRoom(id){if(active===id&&session)return;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
+ if(!rooms.some(r=>r.id===active)){active=!wallMode&&fallback&&rooms.length?rooms[0].id:null;}
+ paintRoomList();if(wallMode){await wall.sync(rooms);updateWallStatus();}else if(active){await pollPresence();if(!session)await connectRoom(active);}}catch(err){displayErr(err);}}
+async function selectRoom(id){if(!wallMode&&active===id&&session)return;await disconnect();wallMode=false;wallStates.clear();q('#wallRoomStates').hidden=true;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
 function clearTiles(){
  for(const entry of tiles.values()){entry.track.detach();entry.item.remove();}
  tiles.clear();focusedTile=null;
 }
 async function disconnect(){
+ wall.stop();wallStates.clear();
  videoTest.stop(true);
  connectionSerial++;reconnect.stop();
  const prev=session;session=null;
@@ -285,24 +301,50 @@ async function connectRoom(id,{retry=false}={}){
   reconnect.failure(id);
  }
 }
-function attachTrack(track,pub,p){
+function attachTrack(track,pub,p,roomId=active,roomName=null){
  if(track.kind!==Track.Kind.Video || pub.source!==Track.Source.ScreenShare)return;
- const id=`${p.identity}:${pub.trackSid}`;if(tiles.has(id))return;
+ const id=`${roomId}:${p.identity}:${pub.trackSid}`;if(tiles.has(id))return;
  const grid=q('#grid');if(!grid)return;
  const item=document.createElement('article');item.className='tile';
  const video=document.createElement('video');video.autoplay=true;video.playsInline=true;video.muted=true;
- const footer=document.createElement('div');footer.className='tile-footer';const n=document.createElement('span');n.textContent=p.name||p.identity;
+ const footer=document.createElement('div');footer.className='tile-footer';const n=document.createElement('span');n.textContent=(roomName?roomName+' · ':'')+(p.name||p.identity);n.title=n.textContent;
  const badge=document.createElement('span');badge.className='online';badge.textContent='● LIVE';
  const focus=document.createElement('button');focus.className='focus-button';focus.textContent='Крупно';focus.title='Увеличить выбранный поток';focus.onclick=()=>focusTile(id);
  footer.append(n,badge,focus);item.append(video,footer);video.ondblclick=()=>item.requestFullscreen?.();
- grid.append(item);track.attach(video);tiles.set(id,{item,track,focus});if(p.identity===videoTest.identity){
+ grid.append(item);track.attach(video);tiles.set(id,{item,track,focus,roomId,badge});if(p.identity===videoTest.identity){
   if(typeof video.requestVideoFrameCallback==='function')video.requestVideoFrameCallback(()=>videoTest.onVideoFrame(p.identity));
   else video.addEventListener('playing',()=>videoTest.onVideoFrame(p.identity),{once:true});
  }
  applyGridLayout();updatePlaceholder();
 }
-function detachTrack(track,pub,p){const id=`${p.identity}:${pub.trackSid}`;const obj=tiles.get(id);if(obj){obj.track.detach();obj.item.remove();tiles.delete(id);}if(focusedTile===id)focusedTile=null;applyGridLayout();updatePlaceholder();}
-function removeParticipant(p){for(const [id,t] of tiles){if(id.startsWith(p.identity+':')){t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
-function updatePlaceholder(){const placeholder=q('#placeholder');if(placeholder)placeholder.hidden=tiles.size>0;}
-window.addEventListener('beforeunload',()=>{videoTest.stop(true);reconnect.stop();session?.disconnect();});
+function detachTrack(track,pub,p,roomId=active){const id=`${roomId}:${p.identity}:${pub.trackSid}`;const obj=tiles.get(id);if(obj){obj.track.detach();obj.item.remove();tiles.delete(id);}if(focusedTile===id)focusedTile=null;applyGridLayout();updatePlaceholder();}
+function removeParticipant(p,roomId=active){for(const [id,t] of tiles){if(id.startsWith(roomId+':'+p.identity+':')){t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
+function updatePlaceholder(){const placeholder=q('#placeholder');if(placeholder)placeholder.hidden=tiles.size>0;if(wallMode)updateWallStatus();}
+window.addEventListener('beforeunload',()=>{wall.stop();videoTest.stop(true);reconnect.stop();session?.disconnect();});
+async function selectAllControllers(){
+ await disconnect();wallMode=true;active=null;wallStates.clear();
+ q('#content').innerHTML='<div id="grid" class="stream-grid"></div><div id="placeholder" class="empty">Ожидание трансляций со всех пультов…</div>';
+ applyGridLayout();paintRoomList();await wall.sync(rooms);updateWallStatus();
+}
+function removeRoomTiles(roomId){
+ for(const [id,t] of tiles)if(t.roomId===roomId){t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}
+ applyGridLayout();updatePlaceholder();
+}
+function updateWallStatus(){
+ if(!wallMode)return;
+ for(const entry of tiles.values()){
+  const connected=wallStates.get(entry.roomId)==='connected';
+  entry.badge.textContent=connected?'● LIVE':'↻ Восстановление связи';
+  entry.badge.classList.toggle('tile-reconnecting',!connected);
+ }
+ const connected=rooms.filter(r=>wallStates.get(r.id)==='connected').length;
+ const waiting=rooms.filter(r=>wallStates.get(r.id)==='reconnecting').length;
+ const info=q('#roomInfo');if(info)info.textContent='Общая видеостена · '+rooms.length+' комнат';
+ const summary=q('#presenceSummary');if(summary)summary.textContent='Видеопотоков: '+tiles.size+' · Комнат подключено: '+connected+'/'+rooms.length+(waiting?' · Переподключение: '+waiting:'');
+ const states=q('#wallRoomStates');if(states){states.hidden=false;states.innerHTML=rooms.map(r=>{
+  const state=wallStates.get(r.id)||'connecting';const labels={connected:'подключена',connecting:'подключение…',reconnecting:'восстановление…'};
+  return '<span class="wall-room-state '+state+'">'+escapeHtml(r.name)+' · '+labels[state]+'</span>';
+ }).join('')||'<span class="muted">Создайте комнату и подключите пульт.</span>';}
+ const placeholder=q('#placeholder');if(placeholder)placeholder.textContent=rooms.length?'Ожидание трансляций со всех пультов…':'Пока нет комнат. Создайте комнату для подключения пультов.';
+}
 startup();
