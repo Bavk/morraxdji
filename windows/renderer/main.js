@@ -1,3 +1,4 @@
+import {filteredLayout} from './stream-filter.mjs';
 import {recordingBusy,receiveEnabled,toggleReceive} from './receive-control.mjs';
 import {WallLayout,sourceKey,showWallOrder} from './wall-layout.mjs';
 import {frameTransition,showEventLog} from './event-log-view.mjs';
@@ -29,7 +30,7 @@ function roomEvent(room,state){
 let closingRecordings=false;
 let wallMode=false;
 let wallStates=new Map();
-let connectionSerial=0; let focusedTile=null;
+let connectionSerial=0; let focusedTile=null;let streamQuery='';
 let layoutWarning=false;
 const wallLayout=new WallLayout(localStorage,()=>{layoutWarning=true;});
 let gridColumns=wallLayout.columns;
@@ -155,10 +156,14 @@ function dashboard(){
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
  </select></label><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
- <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
+ <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
+ q('#streamSearch').value=streamQuery;
+ q('#streamSearch').oninput=e=>{streamQuery=e.target.value;applyGridLayout();};
+ q('#clearStreamSearch').onclick=()=>{streamQuery='';q('#streamSearch').value='';applyGridLayout();q('#streamSearch').focus();};
+ q('#streamSearch').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();q('#clearStreamSearch').click();}};
  q('#allControllers').onclick=()=>selectAllControllers();
  q('#wallOrderButton').onclick=()=>showWallOrder(wallLayout,{getSources:()=>[...tiles.values()].map(t=>({key:t.sourceKey,label:t.label})),onChange:applyGridLayout});
  if(layoutWarning)recordingNotice('Не удалось прочитать настройки видеостены. Используются доступные настройки в памяти.',true);
@@ -264,11 +269,11 @@ async function pollPresence(){
 async function refresh(fallback=true){try{const data=await window.streamControl.rooms();rooms=data.rooms;
  const pending=q('#pendingRoomCleanup');if(pending)pending.textContent=data.pendingDeletedRooms?`Защита удалённых комнат (старые токены): ${data.pendingDeletedRooms}`:'';
  if(!rooms.some(r=>r.id===active)){active=!wallMode&&fallback&&rooms.length?rooms[0].id:null;}
- paintRoomList();if(wallMode){await wall.sync(rooms);updateWallStatus();}else if(active){await pollPresence();if(!session)await connectRoom(active);}}catch(err){displayErr(err);}}
+ paintRoomList();if(wallMode){await wall.sync(rooms);applyGridLayout();updateWallStatus();}else if(active){await pollPresence();if(!session)await connectRoom(active);}}catch(err){displayErr(err);}}
 async function selectRoom(id){if(!wallMode&&active===id&&session)return;await disconnect();wallMode=false;wallStates.clear();q('#wallRoomStates').hidden=true;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
 function clearTiles(){
  for(const entry of tiles.values()){void entry.recorder?.stop();entry.stopMonitor?.();entry.track.detach();entry.item.remove();}
- tiles.clear();observedSources.clear();focusedTile=null;
+ tiles.clear();observedSources.clear();focusedTile=null;updateStreamFilterSummary(0,0);
 }
 async function disconnect(){
  wall.stop();wallStates.clear();journalRoomStates.clear();
@@ -283,15 +288,24 @@ function applyGridLayout(){
  grid.style.setProperty('--grid-columns',gridColumns?String(gridColumns):'0');
  if(layoutWarning){layoutWarning=false;recordingNotice('Настройки видеостены не удалось сохранить на диск. Изменения действуют до закрытия приложения.',true);}
  grid.classList.toggle('fixed-grid',gridColumns>0);
+ const view=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name})),streamQuery,focusedTile);focusedTile=view.focusedId;const visible=new Set(view.visible);
  grid.classList.toggle('focused-grid',Boolean(focusedTile));
  const order=wallLayout.sorted([...new Set([...tiles.values()].map(t=>t.sourceKey))]);
  for(const [id,entry] of tiles){
   entry.item.style.order=String(order.indexOf(entry.sourceKey));
-  entry.item.hidden=Boolean(focusedTile && id!==focusedTile);
+  entry.item.hidden=!visible.has(id);
   entry.item.classList.toggle('is-focused',id===focusedTile);
   entry.focus.textContent=id===focusedTile?'Вернуть сетку':'Крупно';
   applyReceiveState(entry);
  }
+ updateStreamFilterSummary(view.matching.length,tiles.size);
+}
+function updateStreamFilterSummary(matched,total=tiles.size){
+ matched??=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name})),streamQuery).matching.length;
+ const hiddenRecordings=[...tiles.values()].filter(t=>t.item.hidden&&recordingBusy(t.recorder?.state)).length;
+ const summary=q('#streamSearchSummary');if(summary)summary.textContent=`Найдено потоков: ${matched} из ${total}`+(hiddenRecordings?` · Скрытых записей: ${hiddenRecordings}`:'');
+ const clear=q('#clearStreamSearch');if(clear)clear.disabled=!streamQuery;
+ const empty=q('#streamFilterEmpty');if(empty)empty.hidden=!total||matched>0;
 }
 function applyReceiveState(entry){
  entry.pub.setEnabled(receiveEnabled({paused:entry.receivePaused,hidden:entry.item.hidden,recordingState:entry.recorder?.state}));
@@ -377,7 +391,7 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
    recordButton.textContent=state==='choosing'?'Выбор файла…':state==='stopping'?'Сохранение…':state==='recording'?'■ Стоп':'● Запись';
    recordButton.title=state==='recording'?'Остановить запись и сохранить WebM':'Записать видео этого пульта в WebM без звука';
    recordButton.setAttribute('aria-label',state==='recording'?'Остановить запись: '+n.textContent:'Записать: '+n.textContent);
-   if(tiles.get(id)===entry)applyReceiveState(entry);
+   if(tiles.get(id)===entry){applyReceiveState(entry);updateStreamFilterSummary();}
    if(['saved','error','canceled'].includes(state)){
     activeRecordings.delete(recorder);
     if(state==='saved')recordingNotice('Запись сохранена: '+data.filePath+(data.archiveWarning?' · '+data.archiveWarning:''));
