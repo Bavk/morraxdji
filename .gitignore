@@ -32,3 +32,6 @@
 **/relay-state.json
 .DS_Store
 windows/vendor/livekit/
+
+# Local video recordings
+*.webm
