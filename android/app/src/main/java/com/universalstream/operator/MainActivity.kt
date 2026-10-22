@@ -146,7 +146,7 @@ class MainActivity:ComponentActivity() {
             try {
                 if(attempt!=sessionEpoch || stopping)return@launch
                 val room=StreamState.room?:error("Нет соединения с Windows")
-                val resultOk=room.localParticipant.setScreenShareEnabled(true,ScreenCaptureParams(result.data!!,onStop={
+                val resultOk=room.localParticipant.setScreenShareEnabled(true,ScreenCaptureParams(result.data!!,notificationId=ScreenShareNotification.ID,notification=ScreenShareNotification.create(this@MainActivity),onStop={
                     runOnUiThread {
                         if(!stopping && StreamState.room!=null) {
                             setStatus("Android остановил захват экрана. Отключение…")
