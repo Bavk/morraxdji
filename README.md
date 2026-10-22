@@ -1,4 +1,4 @@
-# Universal Stream Control — Windows v0.47 / Android v0.29
+# Universal Stream Control — Windows v0.47 / Android v0.30
 
 **Русская документация:** [README_RU.md](README_RU.md).
 
@@ -150,3 +150,7 @@ Android позволяет **удалить сохранённое подклю�
 ## Исправление создания комнаты v0.47
 
 Встроенная форма заменяет неподдерживаемый Electron prompt при создании комнаты, выпуске ключа и переименовании. [Исправление v0.47](CHANGELOG_v0.47_RU.md).
+
+## Проверка настоящего пульта DJI RC Plus 2
+
+22.10.2026 подтверждена LAN-трансляция экрана физического DJI RC Plus 2 на Windows. Исправлено падение foreground-уведомления в Android v0.30. [Исправленный APK](https://github.com/Bavk/morraxdji/actions/runs/39813607319/artifacts/12441760612), [подробный отчёт и ограничения](DJI_RC_PLUS_2_TEST_RU.md). Интернет/VPN и реальное полётное видео отдельно не проверялись.
