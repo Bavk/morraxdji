@@ -24,12 +24,13 @@ function validateEndpoint(value) {
 function makeConfig({privateKey, address, relayKey, endpoint, windows}) {
   if(!validatePubKey(privateKey) || !validatePubKey(relayKey))throw Error('Некорректный ключ WireGuard');
   if(address!==ADDRESS && !/^10\.77\.0\.(?:1\d\d|2[0-3]\d|240)$/.test(address))throw Error('Недопустимый VPN-IP');
-  return `[Interface]\nPrivateKey = ${privateKey}\nAddress = ${address}/32\n\n[Peer]\nPublicKey = ${relayKey}\nEndpoint = ${validateEndpoint(endpoint)}\nAllowedIPs = ${windows ? '10.77.0.0/24' : ADDRESS+'/32'}\nPersistentKeepalive = 25\n`;
+  return `[Interface]\nPrivateKey = ${privateKey}\nAddress = ${address}/32\nMTU = 1280\n\n[Peer]\nPublicKey = ${relayKey}\nEndpoint = ${validateEndpoint(endpoint)}\nAllowedIPs = ${windows ? '10.77.0.0/24' : ADDRESS+'/32'}\nPersistentKeepalive = 25\n`;
 }
-function makeInvite({operatorKey,privateKey,address,relayKey,endpoint}) {
+function makeInvite({operatorKey,privateKey,address,relayKey,endpoint,transport}) {
   if(!/^STRM_[A-Za-z0-9_-]{32}$/.test(operatorKey)) throw Error('Некорректный операторский ключ');
   makeConfig({privateKey,address,relayKey,endpoint,windows:false}); // validate only; Android composes a strict split tunnel
-  const data={v:1,key:operatorKey,ip:address,privateKey,relayKey,endpoint};
+  if(transport){const u=new URL(transport.url);if(u.protocol!=='wss:'||u.username||u.password||u.search||u.hash||!/^\/v1\/tunnel\/key_[a-f0-9]{20}$/.test(u.pathname)||!/^[A-Za-z0-9_-]{43}$/.test(transport.token))throw Error('Некорректный HTTPS-транспорт VPN');}
+  const data={v:1,key:operatorKey,ip:address,privateKey,relayKey,endpoint,...(transport?{transport}:{})};
   return `USCV1.${Buffer.from(JSON.stringify(data)).toString('base64url')}`;
 }
 function savePrivateJSON(target,data) {

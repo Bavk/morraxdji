@@ -16,6 +16,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install relay transport dependency
+        run: npm ci --prefix relay --no-audit --no-fund
       - name: Run offline Node tests and source checks
         run: bash RUN_TESTS.sh
       - name: Check source package layout and repository safety

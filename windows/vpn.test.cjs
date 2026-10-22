@@ -7,6 +7,7 @@ test('WireGuard x25519 keypair and operator enrollment code',()=>{
  assert.equal(Buffer.from(a.publicKey,'base64').length,32);
  const config=makeConfig({privateKey:a.privateKey,address:'10.77.0.1',relayKey:b.publicKey,endpoint:'vpn.example.com:51820',windows:true});
  assert.match(config,/AllowedIPs = 10\.77\.0\.0\/24/);
+ assert.match(config,/MTU = 1280/);
  const code=makeInvite({operatorKey:'STRM_'+ 'a'.repeat(32),privateKey:a.privateKey,address:'10.77.0.100',relayKey:b.publicKey,endpoint:'vpn.example.com:51820'});
  const parsed=JSON.parse(Buffer.from(code.split('.')[1],'base64url').toString());
  assert.equal(parsed.v,1);assert.equal(parsed.key,'STRM_'+ 'a'.repeat(32));

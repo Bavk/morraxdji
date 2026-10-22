@@ -1,6 +1,7 @@
 'use strict';
 const fs=require('node:fs');
 const path=require('node:path');
+const crypto=require('node:crypto');
 const {ADDRESS,wireguardKeys,validatePubKey,validateEndpoint,makeConfig,makeInvite,savePrivateJSON,allocIP}=require('./vpn.cjs');
 
 function manager({dataDir,safeStorage,request=fetch}){
@@ -68,11 +69,13 @@ function manager({dataDir,safeStorage,request=fetch}){
       const peers=readJSON(peersPath,{});
       const ip=allocIP(peers);
       const keys=wireguardKeys();
-      await relayCall(config,'POST','/v1/peers',{id:key.operator.id,ip,publicKey:keys.publicKey});
+      const transportToken=crypto.randomBytes(32).toString('base64url');
+      const registeredPeer=await relayCall(config,'POST','/v1/peers',{id:key.operator.id,ip,publicKey:keys.publicKey,transportToken});
       registered=true;
       peers[key.operator.id]={ip,publicKey:keys.publicKey};
       savePrivateJSON(peersPath,peers);
-      return {key:makeInvite({operatorKey:key.key,privateKey:keys.privateKey,address:ip,relayKey:config.relayPublicKey,endpoint:config.endpoint}),operator:key.operator};
+      const url=new URL(config.baseUrl);url.protocol='wss:';url.pathname='/v1/tunnel/'+key.operator.id;
+      return {key:makeInvite({operatorKey:key.key,privateKey:keys.privateKey,address:ip,relayKey:config.relayPublicKey,endpoint:config.endpoint,...(registeredPeer.transport===true?{transport:{url:url.href,token:transportToken}}:{})}),operator:key.operator};
     }catch(e){
       if(registered)await relayCall(config,'DELETE',`/v1/peers/${key.operator.id}`).catch(()=>{});
       await revokeKey(key.operator.id).catch(()=>{});throw e;

@@ -13,7 +13,7 @@ test('Windows provisioning: enroll hub/operator, persist encrypted relay token, 
   if(options.method==='GET'&&pathname==='/v1/status'){return {ok:true,json:async()=>({ok:true,windowsRegistered:peers.has('windows'),operatorPeers:peers.size-1})};}
   if(options.method==='POST'){
    if(peers.has(c.id))return{ok:false,status:409,text:async()=>''};
-   peers.set(c.id,c);return{ok:true,json:async()=>({ok:true})};
+   peers.set(c.id,c);return{ok:true,json:async()=>({ok:true,transport:!!c.transportToken})};
   }
   if(options.method==='DELETE'){const id=pathname.split('/').pop();peers.delete(id);return{ok:true,json:async()=>({ok:true})};}
   return{ok:false,status:404,text:async()=>''};
@@ -29,6 +29,10 @@ test('Windows provisioning: enroll hub/operator, persist encrypted relay token, 
   const opId='key_'+'a'.repeat(20);
   const key=await vpn.createOperator(async()=>({key:'STRM_'+'z'.repeat(32),operator:{id:opId,name:'Test'}}),()=>{throw Error('unexpected');});
   assert.ok(key.key.startsWith('USCV1.'));assert.equal(peers.get(opId).ip,'10.77.0.100');
+  const invite=JSON.parse(Buffer.from(key.key.slice(6),'base64url').toString());
+  assert.equal(invite.transport.url,'wss://vpn.example.com/v1/tunnel/'+opId);
+  assert.match(invite.transport.token,/^[A-Za-z0-9_-]{43}$/);
+  assert.equal(peers.get(opId).transportToken,invite.transport.token);
   assert.equal(vpn.peerAddress(opId),'10.77.0.100');
   let revoked=false;
   await vpn.revokeOperator(opId,async()=>{revoked=true;});

@@ -47,11 +47,12 @@ private class SessionHttpException(val status:Int, message:String):IOException(m
 private object StreamState {
     var room: Room? = null
     var vpnEnabled: Boolean = false
+    var transport:WireGuardTransport?=null
 }
 
 // No raw WireGuard configuration is accepted from an untrusted enrollment code.
 // The APK constructs a split tunnel to the Windows host only.
-internal data class Enrollment(val operatorKey:String,val ip:String,val privateKey:String,val relayKey:String,val endpoint:String) {
+internal data class Enrollment(val operatorKey:String,val ip:String,val privateKey:String,val relayKey:String,val endpoint:String,val transportUrl:String?=null,val transportToken:String?=null) {
     companion object {
         fun parse(code:String):Enrollment {
             require(code.startsWith("USCV1.") && code.length in 80..2500) { "Ожидается код USCV1 из Windows-приложения" }
@@ -70,18 +71,27 @@ internal data class Enrollment(val operatorKey:String,val ip:String,val privateK
             }
             require(Regex("[A-Za-z0-9.-]{3,253}:[0-9]{1,5}").matches(endpoint)) { "Неверный адрес ретранслятора" }
             require((endpoint.substringAfter(':').toIntOrNull() ?: 0) in 1..65535) { "Недопустимый VPN-порт" }
-            return Enrollment(key,ip,privateKey,relayKey,endpoint)
+            val transport=json.optJSONObject("transport")
+            val transportUrl=transport?.getString("url")
+            val transportToken=transport?.getString("token")
+            if(transport!=null){
+                val uri=java.net.URI(transportUrl)
+                require(uri.scheme=="wss" && uri.host!=null && uri.userInfo==null && uri.rawQuery==null && uri.fragment==null && Regex("/v1/tunnel/key_[a-f0-9]{20}").matches(uri.path)) { "Неверный HTTPS-транспорт" }
+                require(transportToken!=null && Regex("[A-Za-z0-9_-]{43}").matches(transportToken)) { "Неверный ключ HTTPS-транспорта" }
+            }
+            return Enrollment(key,ip,privateKey,relayKey,endpoint,transportUrl,transportToken)
         }
     }
-    fun wgConfig():Config {
+    fun wgConfig(endpointOverride:String?=null):Config {
         val config="""
             [Interface]
             PrivateKey = $privateKey
             Address = $ip/32
+            MTU = 1280
 
             [Peer]
             PublicKey = $relayKey
-            Endpoint = $endpoint
+            Endpoint = ${endpointOverride?:endpoint}
             AllowedIPs = 10.77.0.1/32
             PersistentKeepalive = 25
         """.trimIndent()
@@ -230,6 +240,7 @@ class MainActivity:ComponentActivity() {
             if(code.startsWith("USCV1.")) {
                 try {
                     val enrollment=Enrollment.parse(code)
+                    store.save(code)
                     currentCode=code
                     val permission=VpnService.prepare(this)
                     if(permission!=null){pending=enrollment;pendingVpnEpoch=attempt;vpnLauncher.launch(permission)}
@@ -257,10 +268,17 @@ class MainActivity:ComponentActivity() {
         setStatus("Подключение защищённого VPN…")
         lifecycleScope.launch {
             try {
-                withContext(Dispatchers.IO){wg.setState(tunnel,Tunnel.State.UP,enrollment.wgConfig())}
+                if(enrollment.transportUrl!=null && enrollment.transportToken!=null){
+                    setStatus("Подключение WireGuard через HTTPS…")
+                    val transport=WireGuardTransport(enrollment.transportUrl,enrollment.transportToken)
+                    StreamState.transport=transport
+                    transport.open()
+                }
+                withContext(Dispatchers.IO){wg.setState(tunnel,Tunnel.State.UP,enrollment.wgConfig(StreamState.transport?.endpoint))}
                 // The operator can cancel while VPN negotiation is in progress.
                 if(attempt!=sessionEpoch){
                     withContext(Dispatchers.IO){try{wg.setState(tunnel,Tunnel.State.DOWN,null)}catch(_:Exception){}}
+                    StreamState.transport?.close();StreamState.transport=null
                     return@launch
                 }
                 StreamState.vpnEnabled=true
@@ -268,6 +286,7 @@ class MainActivity:ComponentActivity() {
             }catch(e:Exception){
                 if(attempt!=sessionEpoch)return@launch
                 setStatus("VPN не подключён: ${e.message}")
+                StreamState.transport?.close();StreamState.transport=null
                 withContext(Dispatchers.IO){try{wg.setState(tunnel,Tunnel.State.DOWN,null)}catch(_:Exception){}}
                 start.isEnabled=true;stop.isEnabled=false
             }
@@ -347,6 +366,7 @@ class MainActivity:ComponentActivity() {
                 roomEventsJob?.cancel();roomEventsJob=null
                 current?.disconnect();current?.release()
                 StreamState.room=null
+                StreamState.transport?.close();StreamState.transport=null
                 if(StreamState.vpnEnabled){
                     withContext(Dispatchers.IO){try{wg.setState(tunnel,Tunnel.State.DOWN,null)}catch(_:Exception){}}
                     StreamState.vpnEnabled=false
@@ -373,6 +393,7 @@ class MainActivity:ComponentActivity() {
                 StreamState.vpnEnabled=false
             }
             start.isEnabled=true;stop.isEnabled=false;setStatus("Трансляция остановлена")
+            StreamState.transport?.close();StreamState.transport=null
             stopping=false
         }
     }

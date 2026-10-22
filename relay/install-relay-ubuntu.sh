@@ -10,10 +10,13 @@ NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
 if [ "$NODE_MAJOR" -lt 20 ]; then echo 'Node.js >=20 required'; exit 4; fi
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard wireguard-tools caddy openssl iptables
+if ! command -v npm >/dev/null 2>&1; then DEBIAN_FRONTEND=noninteractive apt-get install -y npm; fi
 install -d -m 0700 /etc/universal-stream-relay
 install -d -m 0755 /opt/universal-stream-relay
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install -m 0644 "$HERE/relay.mjs" /opt/universal-stream-relay/relay.mjs
+install -m 0644 "$HERE/tunnel-transport.mjs" "$HERE/package.json" "$HERE/package-lock.json" /opt/universal-stream-relay/
+npm ci --prefix /opt/universal-stream-relay --omit=dev --no-audit --no-fund
 if [ ! -f /etc/universal-stream-relay/wg-privatekey ]; then
  umask 077
  wg genkey > /etc/universal-stream-relay/wg-privatekey
