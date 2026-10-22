@@ -3,6 +3,7 @@ const {app,BrowserWindow,ipcMain,protocol,nativeImage}=require('electron');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),assert=require('node:assert/strict');
 const {NativeLiveKit,binaryPath}=require('./native-livekit.cjs');
 const {renderLivekitConfig}=require('./compose-config.cjs');
+const {prepareRecordingSpace}=require('./recording-space.cjs');
 const {RecordingStore}=require('./recording-store.cjs');
 const {SnapshotStore}=require('./snapshot-store.cjs');
 const savedSnapshots=[];let snapshotAttempts=0,snapshotIndex=0,cancelNextSnapshot=false,snapshotDelayMs=0;
@@ -48,7 +49,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('room:list',()=>call('/api/admin/rooms'));
  ipcMain.handle('room:view',(_,id)=>call(`/api/admin/rooms/${id}/viewer`,'POST',{}));
  ipcMain.handle('room:presence',(_,id)=>call(`/api/admin/rooms/${id}/presence`));
- ipcMain.handle('recording:begin',(event,label)=>recordingStore.begin(event.sender.id,path.join(dir,`test-recording-${++recordingIndex}.webm`),{label}));
+ ipcMain.handle('recording:begin',async(event,label)=>{const file=path.join(dir,`test-recording-${++recordingIndex}.webm`);const space=await prepareRecordingSpace(file,{confirmLow:async()=>true});return {...await recordingStore.begin(event.sender.id,file,{label}),freeBytesAtStart:space.freeBytes};});
  ipcMain.handle('snapshot:save',async(_,label,png)=>{
   snapshotAttempts++;if(cancelNextSnapshot){cancelNextSnapshot=false;return {canceled:true};}
   if(snapshotDelayMs)await new Promise(resolve=>setTimeout(resolve,snapshotDelayMs));
@@ -135,6 +136,7 @@ app.whenReady().then(async()=>{
  assert.deepEqual([...recordingStore.sessions.keys()],filteringSessions);
  await viewer.webContents.executeJavaScript("document.querySelector('#activeRecordingsButton').click()");
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('#activeRecordingsPanel .archive-row').length===2"),'hidden recordings panel');
+ assert.equal(await viewer.webContents.executeJavaScript("[...document.querySelectorAll('#activeRecordingsPanel .archive-location')].every(x=>x.textContent.includes('Свободно при запуске:'))"),true);
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('#activeRecordingsButton').textContent"),'Записи: 2');
  await viewer.webContents.executeJavaScript("document.querySelector('.recordings-reveal').click()");
  await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('#activeRecordingsPanel')"),'recordings panel closes after reveal');

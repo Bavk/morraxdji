@@ -20,7 +20,7 @@ export function showActiveRecordings({getRows,onReveal}){
   q('.recordings-list .empty')?.remove();
   for(const row of rows){let item=items.get(row.id);if(!item){item=document.createElement('article');item.className='archive-row';item.dataset.recording=row.id;item.innerHTML='<div class="archive-row-info"><strong class="recordings-label"></strong><span class="recordings-detail muted"></span><span class="archive-location"></span></div><div class="archive-row-actions"><button class="minor recordings-reveal">Показать пульт</button><button class="danger recordings-stop">Завершить</button></div>';items.set(row.id,item);q('.recordings-list').append(item);}
    item.querySelector('.recordings-label').textContent=row.label;item.querySelector('.recordings-detail').textContent=({choosing:'Выбор файла…',stopping:'Сохранение WebM…',recording:'● Запись · '+recordingDuration(row.startedAt)})[row.state]||row.state;
-   item.querySelector('.archive-location').textContent=row.filePath||'Путь ещё не выбран';
+   item.querySelector('.archive-location').textContent=(row.filePath||'Путь ещё не выбран')+(Number.isFinite(row.freeBytesAtStart)?' · Свободно при запуске: '+(row.freeBytesAtStart/1024**3).toFixed(2)+' ГиБ':'');
    const reveal=item.querySelector('.recordings-reveal');reveal.disabled=!row.canReveal;reveal.onclick=()=>{if(onReveal(row.id))modal.close();else paint();};
    const stop=item.querySelector('.recordings-stop');stop.disabled=row.state!=='recording';stop.textContent=row.state==='stopping'?'Сохранение…':'Завершить';stop.onclick=async()=>{stop.disabled=true;try{await row.stop();}catch(e){error(e);}finally{paint();}};
   }

@@ -8,6 +8,7 @@ const {ADDRESS:VPN_IP} = require('./vpn.cjs');
 const {checkMediaPorts,assertMediaPortsAvailable} = require('./preflight.cjs');
 const {renderLivekitConfig} = require('./compose-config.cjs');
 const {NativeLiveKit,binaryPath,managedProcess} = require('./native-livekit.cjs');
+const {prepareRecordingSpace,formatSpace}=require('./recording-space.cjs');
 const {RecordingStore,recordingName}=require('./recording-store.cjs');
 const {RecordingArchive,registerArchiveScheme,handleArchiveProtocol}=require('./recording-archive.cjs');
 const {EventLog}=require('./event-log.cjs');
@@ -201,7 +202,9 @@ ipcMain.handle('recording:begin',async(event,label)=>{
     filters:[{name:'Видео WebM (без звука)',extensions:['webm']}]
   });
   if(canceled||!filePath||event.sender.isDestroyed())return {canceled:true};
-  const result=await recordings.begin(owner,filePath,{label});
+  const space=await prepareRecordingSpace(filePath,{confirmLow:async({freeBytes})=>{const answer=await dialog.showMessageBox(BrowserWindow.fromWebContents(event.sender),{type:'warning',title:'Мало места для видеозаписи',message:'Свободно '+formatSpace(freeBytes),detail:'На выбранном диске осталось менее 1 ГиБ. Длительная запись может не поместиться. Свободное место расходуется всеми программами и записями. Продолжить?',buttons:['Отмена','Начать запись'],defaultId:0,cancelId:0,noLink:true});return answer.response===1;}});
+  if(space.canceled||event.sender.isDestroyed())return {canceled:true};
+  const result={...await recordings.begin(owner,filePath,{label}),freeBytesAtStart:space.freeBytes};
   if(event.sender.isDestroyed()){await recordings.finish(owner,result.id);return {canceled:true};}
   return result;
 });

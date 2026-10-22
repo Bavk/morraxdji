@@ -305,7 +305,7 @@ function applyGridLayout(){
  updateStreamFilterSummary(view.matching.length,tiles.size);
 }
 function updateActiveRecordingButton(){const button=q('#activeRecordingsButton');if(button)button.textContent='Записи: '+activeRecordings.size;}
-function activeRecordingRows(){return [...activeRecordings].map(recorder=>{const meta=recordingMetadata.get(recorder);return {...meta,state:recorder.state,startedAt:recorder.startedAt,filePath:recorder.filePath,canReveal:tiles.get(meta.tileId)?.recorder===recorder,stop:async()=>{await recorder.stop();if(recorder.error)throw Error('Не удалось сохранить запись. Проверьте уведомление об ошибке.');}};});}
+function activeRecordingRows(){return [...activeRecordings].map(recorder=>{const meta=recordingMetadata.get(recorder);return {...meta,state:recorder.state,startedAt:recorder.startedAt,filePath:recorder.filePath,freeBytesAtStart:recorder.freeBytesAtStart,canReveal:tiles.get(meta.tileId)?.recorder===recorder,stop:async()=>{await recorder.stop();if(recorder.error)throw Error('Не удалось сохранить запись. Проверьте уведомление об ошибке.');}};});}
 function revealActiveRecording(id){const row=activeRecordingRows().find(row=>row.id===id);if(!row?.canReveal)return false;streamQuery='';const search=q('#streamSearch');if(search)search.value='';focusedTile=row.tileId;applyGridLayout();tiles.get(row.tileId)?.item.scrollIntoView({block:'nearest'});return true;}
 function updateStreamFilterSummary(matched,total=tiles.size){
  matched??=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name})),streamQuery).matching.length;

@@ -11,7 +11,7 @@ export class StreamRecorder {
    if(!mimeType)throw Error('Запись WebM не поддерживается этим Chromium');
    const selected=await this.api.beginRecording(label);
    if(!selected?.id){this.state='done';this.onState('canceled');return false;}
-   this.id=selected.id;this.filePath=selected.filePath;
+   this.id=selected.id;this.filePath=selected.filePath;this.freeBytesAtStart=selected.freeBytesAtStart;
    if(this.cancelRequested){await this.api.finishRecording(this.id);this.state='done';this.onState('canceled');return false;}
    this.clone=this.track.clone();
    this.recorder=this.createRecorder(this.makeStream(this.clone),{mimeType,videoBitsPerSecond:2_500_000});
