@@ -45,6 +45,12 @@ jobs:
       - name: Build desktop UI
         working-directory: windows
         run: npm run build:ui
+      - name: Download checksum-verified native LiveKit
+        shell: pwsh
+        run: ./scripts/prepare-livekit.ps1
+      - name: Test native LiveKit startup and API without Docker
+        shell: pwsh
+        run: node scripts/native-livekit-smoke.cjs
       - name: Smoke test real Electron renderer and preload
         working-directory: windows
         run: npm run smoke:ui
@@ -67,6 +73,8 @@ jobs:
         shell: pwsh
         run: |
           $resourceDir = 'windows/release/win-unpacked/resources/server'
+          if (-not (Test-Path 'windows/release/win-unpacked/resources/livekit/livekit-server.exe')) { throw 'Missing bundled native LiveKit' }
+          if (-not (Test-Path 'windows/release/win-unpacked/resources/livekit/LICENSE')) { throw 'Missing LiveKit license' }
           foreach ($source in @('server.mjs','livekit-admin.mjs','operator-network.mjs','revoked-reconciler.mjs','pending-deletions.mjs')) {
             if (-not (Test-Path (Join-Path $resourceDir $source))) { throw "Missing packaged API file: $source" }
           }

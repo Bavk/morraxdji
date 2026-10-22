@@ -1,4 +1,4 @@
-// Windows owns the API lifecycle and a local LiveKit SFU running in Docker Desktop.
+// Windows owns the API lifecycle and the bundled native LiveKit SFU.
 // No cloud LiveKit credentials or external API server are required for LAN testing.
 const {app, BrowserWindow, ipcMain, safeStorage, dialog} = require('electron');
 const {manager:makeVpnManager} = require('./vpn-manager.cjs');
@@ -6,8 +6,8 @@ const {cleanupStalePeers,deleteRoomThenCleanup} = require('./room-lifecycle.cjs'
 const {makeDiagnosticReport} = require('./diagnostic-report.cjs');
 const {ADDRESS:VPN_IP} = require('./vpn.cjs');
 const {checkMediaPorts,assertMediaPortsAvailable} = require('./preflight.cjs');
-const {renderCompose,renderLivekitConfig} = require('./compose-config.cjs');
-const {inspectManagedServer,recoverManagedServer} = require('./server-recovery.cjs');
+const {renderLivekitConfig} = require('./compose-config.cjs');
+const {NativeLiveKit,binaryPath,managedProcess} = require('./native-livekit.cjs');
 const {findWireGuard,installTunnel} = require('./wireguard-service.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +18,10 @@ const {spawn} = require('node:child_process');
 const {pathToFileURL} = require('node:url');
 let apiServer = null;
 let selectedIP = null;
-let composeFile = null;
+const livekitExecutable=binaryPath({packaged:app.isPackaged,resourcesPath:process.resourcesPath});
+const livekit=new NativeLiveKit(livekitExecutable,{onExit:()=>{
+  if(apiServer && !stopping)void stopServer().catch(e=>console.warn('LiveKit shutdown:',e.message));
+}});
 let stopping = null;
 let starting = null;
 let shuttingDown = false;
@@ -38,19 +41,6 @@ function localIPs() {
   }
   return [...addresses].sort((a,b) => Number(b.startsWith('192.168.')) - Number(a.startsWith('192.168.')));
 }
-function run(program, args, cwd, limit=90000) {
-  return new Promise((resolve,reject) => {
-    const child=spawn(program,args,{cwd,windowsHide:true,shell:false});
-    let output='';
-    let done=false;
-    const finish = (err, result) => { if(done)return; done=true;clearTimeout(timeout); if(err)reject(err);else resolve(result); };
-    const timeout=setTimeout(()=>{child.kill();finish(new Error(`Истекло время ожидания команды ${program}. ${output.slice(-1200)}`));},limit);
-    child.on('error',e=>finish(new Error(`Не удаётся запустить ${program}: ${e.message}. Проверьте Docker Desktop.`)));
-    child.stdout.on('data',b=>{output+=String(b);output=output.slice(-7000);});
-    child.stderr.on('data',b=>{output+=String(b);output=output.slice(-7000);});
-    child.on('close',code=>code===0?finish(null,output):finish(new Error(`${program} завершился с кодом ${code}: ${output.slice(-2400)}`)));
-  });
-}
 function waitForTcp(host,port,limit=25000){
   return new Promise(async (resolve,reject)=>{
     const until=Date.now()+limit;
@@ -64,7 +54,7 @@ function waitForTcp(host,port,limit=25000){
       if(ready)return resolve();
       await new Promise(r=>setTimeout(r,400));
     }
-    reject(new Error('LiveKit не отвечает на 127.0.0.1:7880. Проверьте docker compose logs.'));
+    reject(new Error('Встроенный LiveKit не отвечает на 127.0.0.1:7880. Проверьте диагностику и сетевые порты.'));
   });
 }
 function loadOrCreateSecrets(dataDir){
@@ -100,14 +90,11 @@ async function startServerInternal(ip,mode="lan"){
   fs.mkdirSync(dataDir,{recursive:true});
   const keys=loadOrCreateSecrets(dataDir);
   apiPassword=keys.password;
-  // RTC candidates advertise the Windows LAN IP rather than the Docker bridge IP.
+  // Advertise the selected LAN/VPN interface; bind signaling only to that interface and loopback.
   const yaml=renderLivekitConfig(advertisedIP,keys.apiKey,keys.apiSecret);
-  const compose=renderCompose(advertisedIP);
   fs.writeFileSync(path.join(dataDir,'livekit.yaml'),yaml,{mode:0o600});
-  composeFile=path.join(dataDir,'compose.yaml');
-  fs.writeFileSync(composeFile,compose,{mode:0o600});
   try{
-    await run('docker',['compose','-f',composeFile,'up','-d','--remove-orphans'],dataDir,120000);
+    await livekit.start(path.join(dataDir,'livekit.yaml'));
     await waitForTcp('127.0.0.1',7880);
     const loc=app.isPackaged ? path.join(process.resourcesPath,'server','server.mjs') : path.join(__dirname,'..','server','server.mjs');
     const {createApiServer}=await import(pathToFileURL(loc).href);
@@ -119,6 +106,7 @@ async function startServerInternal(ip,mode="lan"){
       wsUrl:`ws://${advertisedIP}:7880`,desktopWsUrl:'ws://127.0.0.1:7880',
       livekitHttpUrl:'http://127.0.0.1:7880'
     });
+    if(!livekit.child)throw Error('Встроенный LiveKit неожиданно завершился при запуске');
     selectedIP=advertisedIP;
     activeMode=mode;
     return status();
@@ -138,24 +126,20 @@ async function stopServer(){
   stopping=(async()=>{
     if(apiServer){const srv=apiServer;apiServer=null;await new Promise(resolve=>srv.close(resolve));}
     selectedIP=null;apiPassword='';activeMode='lan';
-    if(composeFile){const f=composeFile;composeFile=null;try{await run('docker',['compose','-f',f,'down'],path.dirname(f),20000);}catch(e){console.warn('Docker stop:',e.message);}}
+    await livekit.stop();
     return status();
   })();
   try{return await stopping;}finally{stopping=null;}
 }
 async function diagnostics(){
-  let dockerReady=false;let dockerError='';
-  try{await run('docker',['info','--format','{{.ServerVersion}}'],process.cwd(),7500);dockerReady=true;}
-  catch(e){dockerError=String(e.message).slice(0,220);}
+  const nativeReady=livekit.available;
   const ips=localIPs();
   const ports=apiServer?[]:await checkMediaPorts();
   const relay=await vpn().probeRelay();
   let previousServer={configured:false,running:false};
-  if(dockerReady){
-    try{previousServer=await inspectManagedServer(path.join(app.getPath('userData'),'local-server'),run);}
-    catch(e){previousServer={configured:false,running:false,error:String(e.message).slice(0,180)};}
-  }
-  return {relay,previousServer,dockerReady,dockerError,ports,wireGuardInstalled:!!findWireGuard(),vpnConfigured:vpn().status().configured,
+  try{previousServer=await managedProcess(livekitExecutable,path.join(app.getPath('userData'),'local-server'));}
+  catch{previousServer={configured:true,running:!!livekit.child};}
+  return {relay,previousServer,nativeReady,ports,wireGuardInstalled:!!findWireGuard(),vpnConfigured:vpn().status().configured,
     vpnInterfaceUp:ips.includes(VPN_IP),vpnAddress:VPN_IP,ips,
     apiPort:3100,livekitTcpPort:7880,mediaUdpPort:7882};
 }
@@ -205,8 +189,8 @@ ipcMain.handle('vpn:activate',async()=>{
 });
 ipcMain.handle('server:stop',async()=>{if(starting)await starting.catch(()=>{});return stopServer();});
 ipcMain.handle('server:recover',async()=>{
-  if(apiServer || starting || stopping)throw Error('Нельзя восстанавливать контейнер во время работы приложения');
-  return recoverManagedServer(path.join(app.getPath('userData'),'local-server'),run);
+  if(apiServer || starting || stopping)throw Error('Нельзя восстанавливать LiveKit во время работы приложения');
+  return managedProcess(livekitExecutable,path.join(app.getPath('userData'),'local-server'),{terminate:true});
 });
 ipcMain.handle('server:status',()=>status());
 ipcMain.handle('server:diagnostics',()=>diagnostics());
@@ -247,11 +231,11 @@ else {
   app.whenReady().then(mainWindow);
 }
 app.on('before-quit',e=>{
-  if(shuttingDown || (!apiServer && !composeFile && !starting))return;
+  if(shuttingDown || (!apiServer && !livekit.child && !starting))return;
   e.preventDefault();
   if(quitting)return;
   quitting=true;
-  // Do not leave an orphaned Docker project when the window closes mid-start.
+  // Stop the native server even if the window closes during startup.
   Promise.resolve(starting).catch(()=>{}).then(()=>stopServer()).finally(()=>{shuttingDown=true;app.quit();});
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});

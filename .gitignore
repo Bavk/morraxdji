@@ -31,3 +31,4 @@
 **/usc-host.conf
 **/relay-state.json
 .DS_Store
+windows/vendor/livekit/

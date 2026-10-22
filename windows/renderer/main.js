@@ -51,7 +51,7 @@ async function startScreen(){
  <button class="minor" type="submit">Сохранить VPN и создать конфигурацию Windows</button></form>`}</details>
  <button id="runDiagnostics" class="minor" type="button">🔎 Проверить готовность Windows</button>
  <button id="saveDiagnostics" class="minor" type="button">📄 Сохранить диагностику без ключей</button>
- <button id="recoverServer" class="minor" type="button" hidden>♻ Завершить оставшийся LiveKit и восстановить запуск</button><p id="diagResult" class="small-note" aria-live="polite"></p><p class="small-note">Для запуска LiveKit необходим Docker Desktop. VPN требует однократной настройки Linux-ретранслятора и WireGuard на Windows; Android VPN встроен в APK.</p>
+ <button id="recoverServer" class="minor" type="button" hidden>♻ Завершить оставшийся LiveKit и восстановить запуск</button><p id="diagResult" class="small-note" aria-live="polite"></p><p class="small-note">Видеосервер LiveKit встроен и запускается автоматически без Docker. VPN требует однократной настройки Linux-ретранслятора и WireGuard на Windows; Android VPN встроен в APK.</p>
  <p class="error" id="error" hidden></p></div></section>`;
  const mode=q('#networkMode');mode.value=configured?'vpn':'lan';
  const activate=q('#activateVpn');
@@ -67,7 +67,7 @@ async function startScreen(){
      const busy=(d.ports||[]).filter(p=>!p.available).map(p=>`${p.port}/${p.protocol}`).join(', ');
      const relayState=!d.vpnConfigured?'ещё не настроен':d.relay?.reachable?(d.relay.legacy?'доступен, но требуется обновить API на VPS':d.relay.windowsRegistered?'API доступен, Windows зарегистрирован':'API доступен, Windows НЕ зарегистрирован'):'нет связи с VPN-шлюзом';
      const recovery=q('#recoverServer');if(recovery)recovery.hidden=!(d.previousServer?.running && !d.ports.every(p=>p.available));
-     q('#diagResult').textContent=`Docker Desktop: ${d.dockerReady?'готов':'не запущен или не установлен'} · WireGuard: ${d.wireGuardInstalled?'установлен':'не установлен'}, ${d.vpnConfigured?(d.vpnInterfaceUp?'VPN активен':'VPN выключен'):'VPN не настроен'} · VPS: ${relayState} · Порты: ${busy?'заняты '+busy:'свободны'} · IP: ${d.ips.join(', ')||'нет'}`;
+     q('#diagResult').textContent=`Встроенный LiveKit: ${d.nativeReady?'готов':'не найден — переустановите приложение'} · WireGuard: ${d.wireGuardInstalled?'установлен':'не установлен'}, ${d.vpnConfigured?(d.vpnInterfaceUp?'VPN активен':'VPN выключен'):'VPN не настроен'} · VPS: ${relayState} · Порты: ${busy?'заняты '+busy:'свободны'} · IP: ${d.ips.join(', ')||'нет'}`;
    }catch(err){showError(err);}finally{button.disabled=false;}
  };
  q('#saveDiagnostics').onclick=async()=>{
@@ -76,10 +76,10 @@ async function startScreen(){
   }catch(err){showError(err);}
  };
  q('#recoverServer').onclick=async()=>{
-   if(!confirm('Завершить оставшийся Docker LiveKit предыдущего запуска? Активные трансляции будут прерваны. Комнаты и ключи сохранятся.'))return;
+   if(!confirm('Завершить оставшийся LiveKit предыдущего запуска? Активные трансляции будут прерваны. Комнаты и ключи сохранятся.'))return;
    const btn=q('#recoverServer');btn.disabled=true;
    try{const result=await window.streamControl.recoverServer();
-     q('#diagResult').textContent=result.recovered?'Предыдущий контейнер завершён. Запустите сервер ещё раз.':'Контейнер предыдущей версии не найден.';
+     q('#diagResult').textContent=result.recovered?'Предыдущий LiveKit завершён. Запустите сервер ещё раз.':'Предыдущий LiveKit не найден.';
      btn.hidden=true;
    }catch(err){showError(err);}finally{btn.disabled=false;}
  };
@@ -87,7 +87,7 @@ async function startScreen(){
   e.preventDefault();const btn=q('#startButton');btn.disabled=true;btn.textContent='Запуск LiveKit и API…';
   try{serverInfo=await window.streamControl.startServer(q('#localIp').value,mode.value);rooms=(await window.streamControl.rooms()).rooms;dashboard();await refresh();}
   catch(err){showError(err);btn.disabled=false;btn.textContent='▶ Повторить запуск';
-   // If a previous Windows process crashed, its Docker project may still own the ports.
+   // If a previous Windows process crashed, its native LiveKit process may still own the ports.
    try{const d=await window.streamControl.diagnostics();
      if(d.previousServer?.running){q('#recoverServer').hidden=false;
        q('#diagResult').textContent='Обнаружен LiveKit от предыдущего запуска. Используйте кнопку восстановления, затем повторите запуск.';}

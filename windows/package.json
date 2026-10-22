@@ -35,7 +35,8 @@
       "dist/**/*",
       "package.json",
       "vite.config.mjs",
-      "room-lifecycle.cjs"
+      "room-lifecycle.cjs",
+      "native-livekit.cjs"
     ],
     "directories": {
       "output": "release"
@@ -55,6 +56,14 @@
           "operator-network.mjs",
           "revoked-reconciler.mjs",
           "pending-deletions.mjs"
+        ]
+      },
+      {
+        "from": "vendor/livekit",
+        "to": "livekit",
+        "filter": [
+          "livekit-server.exe",
+          "LICENSE"
         ]
       }
     ]

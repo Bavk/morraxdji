@@ -25,5 +25,6 @@ test('reject misconfigured or injected network addresses',()=>{
 test('LiveKit announces only chosen host address and validates secret',()=>{
  const y=renderLivekitConfig('10.77.0.1','usc'+'a'.repeat(18),'S'.repeat(50));
  assert.match(y,/node_ip: 10\.77\.0\.1/);
+ assert.match(y,/bind_addresses: \[127\.0\.0\.1, 10\.77\.0\.1\]/);
  assert.throws(()=>renderLivekitConfig('10.77.0.1','bad','S'.repeat(50)));
 });

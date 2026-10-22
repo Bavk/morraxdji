@@ -16,7 +16,7 @@ function renderLivekitConfig(ip,apiKey,apiSecret){
   validateAddress(ip);
   if(!/^usc[a-f0-9]{18}$/.test(apiKey) || !/^[A-Za-z0-9_-]{40,}$/.test(apiSecret))
     throw Error('Неверный формат внутренних учётных данных LiveKit');
-  return `port: 7880\nrtc:\n  tcp_port: 7881\n  udp_port: 7882\n  node_ip: ${ip}\n  use_external_ip: false\nkeys:\n  ${apiKey}: ${apiSecret}\n`;
+  return `port: 7880\nbind_addresses: [127.0.0.1, ${ip}]\nrtc:\n  ips:\n    includes: [127.0.0.1/32, ${ip}/32]\n  enable_loopback_candidate: true\n  tcp_port: 7881\n  udp_port: 7882\n  node_ip: ${ip}\n  use_external_ip: false\nkeys:\n  ${apiKey}: ${apiSecret}\n`;
 }
 function renderCompose(ip){
   validateAddress(ip);
