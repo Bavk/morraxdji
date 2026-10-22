@@ -85,11 +85,12 @@ async function startScreen(){
  <label>Публичный ключ WireGuard ретранслятора</label><input id="relayPub" required placeholder="Ключ Base64" />
  <label>Токен управления ретранслятором</label><input id="relayToken" type="password" required autocomplete="off" />
  <button class="minor" type="submit">Сохранить VPN и создать конфигурацию Windows</button></form>`}</details>
- <button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor" type="button">▤ Архив записей</button>
+ <div id="powerSettings"></div><button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor" type="button">▤ Архив записей</button>
  <button id="runDiagnostics" class="minor" type="button">🔎 Проверить готовность Windows</button>
  <button id="saveDiagnostics" class="minor" type="button">📄 Сохранить диагностику без ключей</button>
  <button id="recoverServer" class="minor" type="button" hidden>♻ Завершить оставшийся LiveKit и восстановить запуск</button><p id="diagResult" class="small-note" aria-live="polite"></p><p class="small-note">Видеосервер LiveKit встроен и запускается автоматически без Docker. VPN требует однократной настройки Linux-ретранслятора и WireGuard на Windows; Android VPN встроен в APK.</p>
  <p class="error" id="error" hidden></p></div></section>`;
+ mountPowerSettings(info.power);
  const mode=q('#networkMode');mode.value=configured?'vpn':'lan';
  const activate=q('#activateVpn');
  if(activate)activate.onclick=async()=>{
@@ -148,7 +149,7 @@ function dashboard(){
  presenceTimer=setInterval(()=>{if(active)pollPresence();},8000);
  el.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand">◉ UNIVERSAL STREAM CONTROL</div><div class="sectionlabel">КОМНАТЫ</div>
  <button id="allControllers" class="minor wall-button">▦ Все пульты</button><div id="roomList" class="room-list"></div><button id="addRoom" class="minor">+ Создать комнату</button>
- <div class="sidebar-footer"><button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor">▤ Архив записей</button><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
+ <div class="sidebar-footer"><div id="powerSettings"></div><button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor">▤ Архив записей</button><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
  <div id="endpoint" class="endpoint"></div><div id="pendingRoomCleanup" class="muted" role="status"></div><button id="copyUrl" class="minor">Копировать адрес</button>
  <button id="reconcileRevoked" class="minor">Проверить отключения операторов</button>
  <button id="saveDashboardDiagnostics" class="minor">📄 Сохранить диагностику</button>
@@ -160,6 +161,7 @@ function dashboard(){
  </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
  <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
+ mountPowerSettings(serverInfo?.power);
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#activeRecordingsButton').onclick=()=>showActiveRecordings({getRows:activeRecordingRows,onReveal:revealActiveRecording});
@@ -227,6 +229,10 @@ function dashboard(){
  try{const result=await window.streamControl.deleteRoom(active);active=null;await disconnect();await refresh(false);
    if(result?.warning)displayErr(new Error(result.warning));}catch(err){displayErr(err);}};
  paintRoomList();
+}
+function mountPowerSettings(state){const host=q('#powerSettings');if(!host)return;host.innerHTML='<label class="power-setting"><input id="keepAwake" type="checkbox"> Не выключать экран при работающем сервере</label><p id="powerState" class="small-note" role="status"></p>';
+ let current=state||{enabled:true,active:false};const input=q('#keepAwake');const paint=()=>{input.checked=current.enabled;q('#powerState').textContent=current.error||current.warning||(current.active?'Автоматический сон экрана заблокирован программой':current.enabled?'Защита включится после запуска сервера':'Используются обычные настройки питания Windows');};paint();
+ input.onchange=async()=>{const requested=input.checked;input.disabled=true;try{current=await window.streamControl.setKeepAwake(requested);if(serverInfo)serverInfo.power=current;}catch{recordingNotice('Не удалось сохранить настройку питания.',true);}finally{input.disabled=false;paint();}};
 }
 function displayErr(err){const a=q('#alert');a.hidden=false;a.textContent=err.message||String(err);}
 function showKey(key,name){

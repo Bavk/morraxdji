@@ -1,5 +1,5 @@
 // Actual two-room video decoding in the real renderer, using synthetic canvas publishers.
-const {app,BrowserWindow,ipcMain,protocol,nativeImage}=require('electron');
+const {app,BrowserWindow,ipcMain,protocol,nativeImage,powerSaveBlocker}=require('electron');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),assert=require('node:assert/strict');
 const {NativeLiveKit,binaryPath}=require('./native-livekit.cjs');
 const {renderLivekitConfig}=require('./compose-config.cjs');
@@ -12,6 +12,8 @@ const {RecordingArchive,registerArchiveScheme,handleArchiveProtocol}=require('./
 registerArchiveScheme(protocol);
 const recordingStore=new RecordingStore({onSaved:result=>archive.add(result)});const savedRecordings=[];const recordingChunks=new Map();let recordingIndex=0,playback;
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'usc-wall-smoke-'));
+const {PowerGuard}=require('./power-guard.cjs');
+const powerGuard=new PowerGuard({blocker:powerSaveBlocker,file:path.join(dir,'power-preferences.json')});
 const {EventLog}=require('./event-log.cjs');
 const eventLog=new EventLog(path.join(dir,'event-log.json'));
 const exportedEvents=path.join(dir,'exported-events.json');
@@ -24,6 +26,7 @@ async function until(check,label,timeout=30000){
  const end=Date.now()+timeout;while(Date.now()<end){if(await check())return;await new Promise(r=>setTimeout(r,150));}throw Error('Timeout: '+label);
 }
 async function cleanup(){
+ powerGuard.update(false);assert.equal(powerGuard.status().active,false);
  if(viewer&&!viewer.isDestroyed()){await recordingStore.closeOwner(viewer.webContents.id);viewer.destroy();}if(publisher&&!publisher.isDestroyed())publisher.destroy();if(playback&&!playback.isDestroyed())playback.destroy();if(api){const server=api;api=null;await new Promise(r=>server.close(r));}await native.stop();
  // Chromium keeps its temporary profile open until app.exit; remove synthetic credentials only.
  for(const name of ['livekit.yaml','rooms.json'])fs.rmSync(path.join(dir,name),{force:true});
@@ -45,7 +48,9 @@ app.whenReady().then(async()=>{
   assert.ok(response.ok,route+' '+response.status);return response.json();
  };
  const rooms=[];for(const name of ['Пульт A','Пульт B'])rooms.push((await call('/api/admin/rooms','POST',{name})).room);
- ipcMain.handle('server:status',()=>({running:true,mode:'lan',ips:[ip],vpn:{configured:false},operatorUrl:base}));
+ powerGuard.update(true);assert.equal(powerGuard.status().active,true);
+ ipcMain.handle('power:configure',(_,enabled)=>powerGuard.setEnabled(enabled));
+ ipcMain.handle('server:status',()=>({power:powerGuard.status(),running:true,mode:'lan',ips:[ip],vpn:{configured:false},operatorUrl:base}));
  ipcMain.handle('room:list',()=>call('/api/admin/rooms'));
  ipcMain.handle('room:view',(_,id)=>call(`/api/admin/rooms/${id}/viewer`,'POST',{}));
  ipcMain.handle('room:presence',(_,id)=>call(`/api/admin/rooms/${id}/presence`));
@@ -78,6 +83,12 @@ app.whenReady().then(async()=>{
  await publisher.webContents.executeJavaScript(bundle+`;USCWallPublisher.start(${JSON.stringify(configs)})`);
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length===2 && [...document.querySelectorAll('.tile video')].every(v=>v.videoWidth>0 && v.readyState>=2 && v.getVideoPlaybackQuality().totalVideoFrames>=3)"),'two decoded video streams');
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.wall-room-state.connected').length"),2);
+ await viewer.webContents.executeJavaScript("document.querySelector('#keepAwake').click()");
+ await until(()=>!powerGuard.status().enabled&&!powerGuard.status().active,'disable power guard during streaming');
+ await viewer.webContents.executeJavaScript("document.querySelector('#keepAwake').click()");
+ await until(()=>powerGuard.status().enabled&&powerGuard.status().active,'enable power guard during streaming');
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length"),2);
+
  assert.equal(await viewer.webContents.executeJavaScript("getComputedStyle(document.querySelector('#placeholder')).display"),'none');
  await until(()=>viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile-metrics')].length===2 && [...document.querySelectorAll('.tile-metrics')].every(e=>/[1-9][0-9]* FPS/.test(e.textContent)&&e.textContent.includes('Мбит/с'))"),'real receiver metrics');
  await viewer.webContents.executeJavaScript("document.querySelector('.pause-button').click()");
@@ -223,6 +234,7 @@ app.whenReady().then(async()=>{
  assert.deepEqual(await visualOrder(),expectedOrder);
  const loaded=new Promise(resolve=>viewer.webContents.once('did-finish-load',resolve));viewer.reload();await loaded;
  await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('#allControllers'))"),'dashboard after reload');
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('#keepAwake').checked"),true);
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('#gridColumns').value"),'2');
  await viewer.webContents.executeJavaScript("document.querySelector('#allControllers').click()");
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length===2 && [...document.querySelectorAll('.tile video')].every(v=>v.videoWidth>0)"),'persisted wall after reload');
@@ -255,5 +267,5 @@ app.whenReady().then(async()=>{
  assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===5,'final chunk saved before window closes');await verifyRecording(savedRecordings[4]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback');
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

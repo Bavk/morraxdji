@@ -1,6 +1,9 @@
 // Windows owns the API lifecycle and the bundled native LiveKit SFU.
 // No cloud LiveKit credentials or external API server are required for LAN testing.
-const {app, BrowserWindow, ipcMain, safeStorage, dialog, protocol, shell, nativeImage} = require('electron');
+const {app, BrowserWindow, ipcMain, safeStorage, dialog, protocol, shell, nativeImage, powerSaveBlocker} = require('electron');
+const {PowerGuard}=require('./power-guard.cjs');
+let powerGuardInstance;
+function powerGuard(){return powerGuardInstance??=new PowerGuard({blocker:powerSaveBlocker,file:path.join(app.getPath('userData'),'power-preferences.json')});}
 const {manager:makeVpnManager} = require('./vpn-manager.cjs');
 const {cleanupStalePeers,deleteRoomThenCleanup} = require('./room-lifecycle.cjs');
 const {makeDiagnosticReport} = require('./diagnostic-report.cjs');
@@ -124,7 +127,7 @@ async function startServerInternal(ip,mode="lan"){
     });
     if(!livekit.child)throw Error('Встроенный LiveKit неожиданно завершился при запуске');
     selectedIP=advertisedIP;
-    activeMode=mode;
+    activeMode=mode;powerGuard().update(true);
     return status();
   }catch(e){
     await stopServer();
@@ -132,7 +135,7 @@ async function startServerInternal(ip,mode="lan"){
   }
 }
 function status(){return {
-  running:!!apiServer,lanIp:selectedIP,mode:activeMode,vpn:vpn().status(),
+  power:powerGuard().status(),running:!!apiServer,lanIp:selectedIP,mode:activeMode,vpn:vpn().status(),
   operatorUrl:selectedIP?`http://${selectedIP}:3100`:null,
   mediaUrl:selectedIP?`ws://${selectedIP}:7880`:null,
   ips:localIPs()
@@ -140,6 +143,7 @@ function status(){return {
 async function stopServer(){
   if(stopping)return stopping;
   stopping=(async()=>{
+    powerGuard().update(false);
     if(apiServer){const srv=apiServer;apiServer=null;await new Promise(resolve=>srv.close(resolve));}
     selectedIP=null;apiPassword='';activeMode='lan';
     await livekit.stop();
@@ -251,6 +255,7 @@ ipcMain.handle('server:recover',async()=>{
   if(apiServer || starting || stopping)throw Error('Нельзя восстанавливать LiveKit во время работы приложения');
   return managedProcess(livekitExecutable,path.join(app.getPath('userData'),'local-server'),{terminate:true});
 });
+ipcMain.handle('power:configure',(_,enabled)=>powerGuard().setEnabled(enabled));
 ipcMain.handle('server:status',()=>status());
 ipcMain.handle('server:diagnostics',()=>diagnostics());
 ipcMain.handle('diagnostics:save',async()=>{
@@ -299,3 +304,5 @@ app.on('before-quit',e=>{
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
 app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)mainWindow();});
+
+app.on('will-quit',()=>powerGuardInstance?.update(false));

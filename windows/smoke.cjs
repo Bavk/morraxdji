@@ -1,6 +1,6 @@
 // Real Electron renderer/preload smoke test for CI. No Docker/VPN or camera needed.
 // Run only as an Electron entry point: npx electron smoke.cjs
-const {app, BrowserWindow, ipcMain} = require('electron');
+const {app, BrowserWindow, ipcMain, powerSaveBlocker} = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -10,7 +10,10 @@ app.disableHardwareAcceleration();
 // The real preload invokes server:status during renderer startup. In a smoke
 // process, answer only this IPC with synthetic NON-SECRET state: Docker/VPN
 // must never be started just to verify the desktop UI.
-ipcMain.handle('server:status', async () => ({running:false,mode:'lan',ips:['192.0.2.20'],
+const {PowerGuard}=require('./power-guard.cjs');
+const powerGuard=new PowerGuard({blocker:powerSaveBlocker,file:path.join(tmp,'power-preferences.json')});
+ipcMain.handle('power:configure',(_,enabled)=>powerGuard.setEnabled(enabled));
+ipcMain.handle('server:status', async () => ({power:powerGuard.status(),running:false,mode:'lan',ips:['192.0.2.20'],
   vpn:{configured:false,peerCount:0},lanIp:null,operatorUrl:null,mediaUrl:null}));
 ipcMain.handle('archive:list',()=>[]);
 ipcMain.handle('events:list',()=>[]);
@@ -45,6 +48,9 @@ app.whenReady().then(async()=>{
       error: document.querySelector('#error')?.textContent || ''
     })`).catch(error=>({error:String(error)}));
     if(result.api && result.screen && !result.error){
+      await win.webContents.executeJavaScript("document.querySelector('#keepAwake').click()");
+      for(let i=0;i<30&&powerGuard.status().enabled;i++)await new Promise(resolve=>setTimeout(resolve,50));
+      if(powerGuard.status().enabled||powerGuard.status().active)return end(1,'Power preference did not update while stopped');
       await win.webContents.executeJavaScript("document.querySelector('#openArchive').click()");
       for(let i=0;i<30;i++){
         if(await win.webContents.executeJavaScript("Boolean(document.querySelector('#recordingArchive .archive-list .empty'))")){
