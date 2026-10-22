@@ -1,4 +1,7 @@
-# Universal Stream Control — Windows v0.47 / Android v0.30
+# Universal Stream Control — Windows v0.49 / Android v0.32
+
+
+**Обновление v0.49 / APK v0.32:** назначения доступных комнат операторам, выбор комнаты на Android, настройки просмотра, зашифрованное сохранение ключа и WireGuard через HTTPS/WSS. [Результаты и готовые EXE/APK](BUILD_RESULTS_v0.49.md). [Изменения управления комнатами](CHANGELOG_v0.48_RU.md), [изменения VPN и сохранения кода](CHANGELOG_v0.49_RU.md).
 
 **Русская документация:** [README_RU.md](README_RU.md).
 
@@ -8,16 +11,16 @@
 
 ## Готовые сборки
 
-EXE и APK собраны; GitHub Actions завершился успешно: [запуск 39811452913](https://github.com/Bavk/morraxdji/actions/runs/39811452913).
+EXE и APK собраны; GitHub Actions завершился успешно: [запуск 39831722482](https://github.com/Bavk/morraxdji/actions/runs/39831722482).
 
-- [Windows EXE — NSIS установщик](https://github.com/Bavk/morraxdji/actions/runs/39811452913/artifacts/12440407581)
-- [Android APK со встроенным WireGuard](https://github.com/Bavk/morraxdji/actions/runs/39811452913/artifacts/12439907650)
+- [Windows EXE — NSIS установщик](https://github.com/Bavk/morraxdji/actions/runs/39831722482/artifacts/12448763037)
+- [Android APK со встроенным WireGuard](https://github.com/Bavk/morraxdji/actions/runs/39831722482/artifacts/12449211627)
 
 Артефакты скачиваются как ZIP вместе с SHA256SUMS.txt; для скачивания может потребоваться вход в GitHub. Срок хранения — 30 дней. Новая сборка запускается при push в main или вручную через Actions.
 
 EXE без цифровой подписи, APK подписан отладочным ключом. Windows одновременно запускает локальный видеосервер и просмотр; LiveKit встроен в EXE и работает без Docker/WSL2; для VPN нужен WireGuard для Windows. Для подключения через интернет требуется настроенный VPN-ретранслятор. На Android WireGuard встроен в APK, отдельное приложение не требуется.
 
-Проверены 203 автоматических тестов, запуск интерфейса Electron, упаковка серверных модулей, формат EXE, пакет и подпись APK, контрольные суммы и наличие нативных библиотек WireGuard для четырёх архитектур. Перед эксплуатацией требуется испытание трансляции и VPN на реальных пультах: [результаты сборки](BUILD_RESULTS_v0.47.md).
+Проверены 215 автоматических тестов, запуск интерфейса Electron, упаковка серверных модулей, формат EXE, пакет и подпись APK, контрольные суммы и наличие нативных библиотек WireGuard для четырёх архитектур. На DJI RC Plus 2 проверены VPN/WSS, передача экрана и сохранение ключа; испытания других моделей и длительной нагрузки ещё нужны: [результаты сборки](BUILD_RESULTS_v0.49.md).
 
 **Windows без Docker:** [актуальная инструкция](WINDOWS_NATIVE_RU.md). При сборке запускается настоящий встроенный LiveKit и проверяются операции комнат, остановка и перезапуск.
 

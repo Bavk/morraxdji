@@ -1,5 +1,8 @@
 # Universal Stream Control v0.15
 
+
+**Обновление v0.49 / APK v0.32:** назначения доступных комнат операторам, выбор комнаты на Android, настройки просмотра, зашифрованное сохранение ключа и WireGuard через HTTPS/WSS. [Результаты и готовые EXE/APK](BUILD_RESULTS_v0.49.md). [Изменения управления комнатами](CHANGELOG_v0.48_RU.md), [изменения VPN и сохранения кода](CHANGELOG_v0.49_RU.md).
+
 > **Обновление: Windows без Docker.** Актуальный запуск и сборка описаны в [WINDOWS_NATIVE_RU.md](WINDOWS_NATIVE_RU.md). LiveKit встроен в EXE и запускается напрямую. Упоминания Docker/Compose и неподтверждённых сборок ниже относятся к исходной версии v0.15 и сохранены как история; Docker и WSL2 больше не требуются.
 
 **Сборка Windows EXE и Android APK через GitHub:** [GITHUB_START_RU.md](GITHUB_START_RU.md).
