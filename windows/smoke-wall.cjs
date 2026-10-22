@@ -11,6 +11,9 @@ const {RecordingArchive,registerArchiveScheme,handleArchiveProtocol}=require('./
 registerArchiveScheme(protocol);
 const recordingStore=new RecordingStore({onSaved:result=>archive.add(result)});const savedRecordings=[];const recordingChunks=new Map();let recordingIndex=0,playback;
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'usc-wall-smoke-'));
+const {EventLog}=require('./event-log.cjs');
+const eventLog=new EventLog(path.join(dir,'event-log.json'));
+const exportedEvents=path.join(dir,'exported-events.json');
 const archive=new RecordingArchive(path.join(dir,'recordings-index.json'));
 const revealed=[];let importSelection=[];
 app.setPath('userData',dir);app.disableHardwareAcceleration();
@@ -51,6 +54,9 @@ app.whenReady().then(async()=>{
   if(snapshotDelayMs)await new Promise(resolve=>setTimeout(resolve,snapshotDelayMs));
   const result=await snapshots.save(path.join(dir,'test-frame-'+(++snapshotIndex)+'.png'),png);savedSnapshots.push(result);return result;
  });
+ ipcMain.handle('events:append',(_,kind,label)=>eventLog.append(kind,label));
+ ipcMain.handle('events:list',()=>eventLog.list());
+ ipcMain.handle('events:export',()=>eventLog.export(exportedEvents));
  ipcMain.handle('archive:list',()=>archive.list());
  ipcMain.handle('archive:play',(_,id)=>archive.playback(id));
  ipcMain.handle('archive:reveal',async(_,id)=>{revealed.push(await archive.revealPath(id));return {shown:true};});
@@ -135,6 +141,21 @@ app.whenReady().then(async()=>{
  importSelection=[forgotten.filePath];await viewer.webContents.executeJavaScript("document.querySelector('.archive-import').click()");
  await until(async()=> (await archive.list()).length===2,'import old recording');
  await viewer.webContents.executeJavaScript("document.querySelector('.archive-close').click()");
+ await until(()=>eventLog.list().some(r=>r.kind==='participant-left'),'publisher disconnect event');
+ assert.equal(eventLog.list().filter(r=>r.kind==='frames-stalled').length,1);
+ assert.equal(eventLog.list().filter(r=>r.kind==='frames-restored').length,1);
+ assert.ok(eventLog.list().filter(r=>r.kind==='stream-started').length>=2);
+ await viewer.webContents.executeJavaScript("document.querySelector('#openEvents').click()");
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('#eventLog .archive-row').length>=5"),'event log UI');
+ await viewer.webContents.executeJavaScript("const search=document.querySelector('.event-search');search.value='Нет новых кадров';search.dispatchEvent(new Event('input'))");
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('#eventLog .archive-row').length"),1);
+ await viewer.webContents.executeJavaScript("document.querySelector('.event-export').click()");
+ await until(()=>fs.existsSync(exportedEvents),'event export');
+ assert.deepEqual(JSON.parse(fs.readFileSync(exportedEvents)).events,eventLog.list());
+ assert.deepEqual(new EventLog(path.join(dir,'event-log.json')).list(),eventLog.list());
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length"),1);
+ fs.writeFileSync(path.join(__dirname,'release/events-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
+ await viewer.webContents.executeJavaScript("document.querySelector('.event-close').click()");
  await viewer.webContents.executeJavaScript("document.querySelector('[data-room]').click()");
  await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('.keys-panel').hidden && document.querySelector('#wallRoomStates').hidden"),'return to single room');
  await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('.record-button'))"),'single room video');
@@ -145,5 +166,5 @@ app.whenReady().then(async()=>{
  assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===3,'final chunk saved before window closes');await verifyRecording(savedRecordings[2]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close');
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

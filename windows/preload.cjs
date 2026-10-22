@@ -1,6 +1,9 @@
 const {contextBridge,ipcRenderer}=require('electron');
 const call=(name,...args)=>ipcRenderer.invoke(name,...args);
 contextBridge.exposeInMainWorld('streamControl',Object.freeze({
+  logEvent:(kind,label)=>call('events:append',kind,label),
+  listEvents:()=>call('events:list'),
+  exportEvents:()=>call('events:export'),
   status:()=>call('server:status'),
   diagnostics:()=>call('server:diagnostics'),
   saveDiagnostics:()=>call('diagnostics:save'),

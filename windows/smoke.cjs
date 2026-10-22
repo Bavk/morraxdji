@@ -13,6 +13,7 @@ app.disableHardwareAcceleration();
 ipcMain.handle('server:status', async () => ({running:false,mode:'lan',ips:['192.0.2.20'],
   vpn:{configured:false,peerCount:0},lanIp:null,operatorUrl:null,mediaUrl:null}));
 ipcMain.handle('archive:list',()=>[]);
+ipcMain.handle('events:list',()=>[]);
 let finished = false;
 const failures = [];
 function end(code, message){
@@ -48,7 +49,9 @@ app.whenReady().then(async()=>{
       for(let i=0;i<30;i++){
         if(await win.webContents.executeJavaScript("Boolean(document.querySelector('#recordingArchive .archive-list .empty'))")){
           await win.webContents.executeJavaScript("document.querySelector('.archive-close').click()");
-          clearTimeout(timeout);return end(0,'Renderer, preload API, startup screen and offline recording archive loaded');
+          await win.webContents.executeJavaScript("document.querySelector('#openEvents').click()");
+          for(let j=0;j<30;j++){if(await win.webContents.executeJavaScript("Boolean(document.querySelector('#eventLog .empty'))")){clearTimeout(timeout);return end(0,'Renderer, preload, startup, offline archive and event log loaded');}await new Promise(resolve=>setTimeout(resolve,100));}
+          return end(1,'Offline event log not ready');
         }
         await new Promise(resolve=>setTimeout(resolve,100));
       }

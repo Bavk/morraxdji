@@ -10,6 +10,9 @@ const {renderLivekitConfig} = require('./compose-config.cjs');
 const {NativeLiveKit,binaryPath,managedProcess} = require('./native-livekit.cjs');
 const {RecordingStore,recordingName}=require('./recording-store.cjs');
 const {RecordingArchive,registerArchiveScheme,handleArchiveProtocol}=require('./recording-archive.cjs');
+const {EventLog}=require('./event-log.cjs');
+let eventLogInstance;
+function eventLog(){return eventLogInstance??=new EventLog(path.join(app.getPath('userData'),'event-log.json'));}
 registerArchiveScheme(protocol);
 let archiveInstance;
 function recordingArchive(){return archiveInstance??=new RecordingArchive(path.join(app.getPath('userData'),'recordings-index.json'));}
@@ -214,6 +217,12 @@ ipcMain.handle('snapshot:save',async(event,label,png)=>{
   if(result.canceled||!result.filePath||event.sender.isDestroyed())return {canceled:true};
   return await snapshots.save(result.filePath,png);
  }finally{snapshotOwners.delete(owner);}
+});
+ipcMain.handle('events:append',(_,kind,label)=>eventLog().append(kind,label));
+ipcMain.handle('events:list',()=>eventLog().list());
+ipcMain.handle('events:export',async event=>{
+ const result=await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender),{title:'Экспортировать журнал (выберите новый файл)',defaultPath:'USC_events_'+Date.now()+'.json',filters:[{name:'Журнал JSON',extensions:['json']}]});
+ if(result.canceled||!result.filePath)return {saved:false};return eventLog().export(result.filePath);
 });
 ipcMain.handle('archive:list',()=>recordingArchive().list());
 ipcMain.handle('archive:play',(_,id)=>recordingArchive().playback(id));

@@ -41,3 +41,5 @@ windows/vendor/livekit/
 
 # Default frame snapshot filenames
 USC_frame_*.png
+
+**/event-log.json*

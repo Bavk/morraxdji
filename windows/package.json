@@ -1,6 +1,6 @@
 {
   "name": "universal-stream-control-windows",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "private": true,
   "main": "main.cjs",
   "scripts": {
@@ -40,7 +40,8 @@
       "native-livekit.cjs",
       "recording-store.cjs",
       "recording-archive.cjs",
-      "snapshot-store.cjs"
+      "snapshot-store.cjs",
+      "event-log.cjs"
     ],
     "directories": {
       "output": "release"

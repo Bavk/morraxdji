@@ -1,3 +1,4 @@
+import {frameTransition,showEventLog} from './event-log-view.mjs';
 import { Room,RoomEvent,Track } from 'livekit-client';
 import './style.css';
 import {captureFrame} from './frame-snapshot.mjs';
@@ -12,6 +13,17 @@ let rooms=[];let active=null;let session=null;let tiles=new Map();let serverInfo
 let presence=new Map();let presenceTimer=null;let presenceRequest=0;
 const activeRecordings=new Set();
 const activeSnapshots=new Set();
+const pendingEvents=new Set();
+const observedSources=new Map(),journalRoomStates=new Map();
+let eventLogWarning=false;
+function logEvent(kind,label){
+ const pending=window.streamControl.logEvent(kind,String(label||'Комната')).catch(()=>{if(!eventLogWarning){eventLogWarning=true;recordingNotice('Журнал событий недоступен. Проверьте свободное место и права доступа к профилю приложения.',true);}});
+ pendingEvents.add(pending);void pending.finally(()=>pendingEvents.delete(pending));
+}
+function roomEvent(room,state){
+ if(state==='connecting'||journalRoomStates.get(room.id)===state)return;journalRoomStates.set(room.id,state);
+ const kind={connected:'room-connected',reconnecting:'room-reconnecting'}[state];if(kind)logEvent(kind,room.name);
+}
 let closingRecordings=false;
 let wallMode=false;
 let wallStates=new Map();
@@ -32,7 +44,7 @@ const wall=new MultiRoomViewer({
  onTrack:(track,pub,p,room)=>attachTrack(track,pub,p,room.id,room.name),
  onUntrack:(track,pub,p,room)=>detachTrack(track,pub,p,room.id),
  onLeave:(p,room)=>removeParticipant(p,room.id),onClear:id=>removeRoomTiles(id),
- onState:(room,state)=>{wallStates.set(room.id,state);updateWallStatus();}
+ onState:(room,state)=>{roomEvent(room,state);wallStates.set(room.id,state);updateWallStatus();}
 });
 const escapeHtml=(text)=>String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const showError=(err)=>{const e=q('#error');if(e){e.textContent=err.message||String(err);e.hidden=false;}else alert(err.message||String(err));};
@@ -66,7 +78,7 @@ async function startScreen(){
  <label>Публичный ключ WireGuard ретранслятора</label><input id="relayPub" required placeholder="Ключ Base64" />
  <label>Токен управления ретранслятором</label><input id="relayToken" type="password" required autocomplete="off" />
  <button class="minor" type="submit">Сохранить VPN и создать конфигурацию Windows</button></form>`}</details>
- <button id="openArchive" class="minor" type="button">▤ Архив записей</button>
+ <button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor" type="button">▤ Архив записей</button>
  <button id="runDiagnostics" class="minor" type="button">🔎 Проверить готовность Windows</button>
  <button id="saveDiagnostics" class="minor" type="button">📄 Сохранить диагностику без ключей</button>
  <button id="recoverServer" class="minor" type="button" hidden>♻ Завершить оставшийся LiveKit и восстановить запуск</button><p id="diagResult" class="small-note" aria-live="polite"></p><p class="small-note">Видеосервер LiveKit встроен и запускается автоматически без Docker. VPN требует однократной настройки Linux-ретранслятора и WireGuard на Windows; Android VPN встроен в APK.</p>
@@ -78,6 +90,7 @@ async function startScreen(){
    try{const d=await window.streamControl.activateVpn();q('#diagResult').textContent=d.vpnInterfaceUp?'VPN включён — теперь можно запускать сервер.':'Команда выполнена, но VPN-адрес ещё не появился. Проверьте WireGuard.';}
    catch(err){showError(err);}finally{activate.disabled=false;activate.textContent='⚡ Включить VPN на Windows';}
  };
+ q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#runDiagnostics').onclick=async()=>{
    const button=q('#runDiagnostics');button.disabled=true;
@@ -128,7 +141,7 @@ function dashboard(){
  presenceTimer=setInterval(()=>{if(active)pollPresence();},8000);
  el.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand">◉ UNIVERSAL STREAM CONTROL</div><div class="sectionlabel">КОМНАТЫ</div>
  <button id="allControllers" class="minor wall-button">▦ Все пульты</button><div id="roomList" class="room-list"></div><button id="addRoom" class="minor">+ Создать комнату</button>
- <div class="sidebar-footer"><button id="openArchive" class="minor">▤ Архив записей</button><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
+ <div class="sidebar-footer"><button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor">▤ Архив записей</button><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
  <div id="endpoint" class="endpoint"></div><div id="pendingRoomCleanup" class="muted" role="status"></div><button id="copyUrl" class="minor">Копировать адрес</button>
  <button id="reconcileRevoked" class="minor">Проверить отключения операторов</button>
  <button id="saveDashboardDiagnostics" class="minor">📄 Сохранить диагностику</button>
@@ -140,6 +153,7 @@ function dashboard(){
  </select></label><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
  <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
+ q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#allControllers').onclick=()=>selectAllControllers();
  q('#wallFullscreen').onclick=()=>q('#content').requestFullscreen?.().catch(displayErr);
@@ -248,10 +262,10 @@ async function refresh(fallback=true){try{const data=await window.streamControl.
 async function selectRoom(id){if(!wallMode&&active===id&&session)return;await disconnect();wallMode=false;wallStates.clear();q('#wallRoomStates').hidden=true;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
 function clearTiles(){
  for(const entry of tiles.values()){void entry.recorder?.stop();entry.stopMonitor?.();entry.track.detach();entry.item.remove();}
- tiles.clear();focusedTile=null;
+ tiles.clear();observedSources.clear();focusedTile=null;
 }
 async function disconnect(){
- wall.stop();wallStates.clear();
+ wall.stop();wallStates.clear();journalRoomStates.clear();
  videoTest.stop(true);
  connectionSerial++;reconnect.stop();
  const prev=session;session=null;
@@ -289,17 +303,17 @@ async function connectRoom(id,{retry=false}={}){
   current.on(RoomEvent.TrackSubscribed,(track,pub,participant)=>{if(valid() && session===current)attachTrack(track,pub,participant);});
   current.on(RoomEvent.TrackUnsubscribed,(track,pub,participant)=>{if(valid() && session===current)detachTrack(track,pub,participant);});
   current.on(RoomEvent.ParticipantDisconnected,p=>{if(valid() && session===current)removeParticipant(p);});
-  current.on(RoomEvent.Reconnecting,()=>{if(valid() && session===current){const x=q('#roomInfo');if(x)x.textContent='Восстановление видеосоединения…';}});
-  current.on(RoomEvent.Reconnected,()=>{if(valid() && session===current){const x=q('#roomInfo');if(x)x.textContent='Трансляции экрана операторов';reconnect.success();}});
+  current.on(RoomEvent.Reconnecting,()=>{if(valid() && session===current){logEvent('room-reconnecting',rooms.find(r=>r.id===id)?.name);const x=q('#roomInfo');if(x)x.textContent='Восстановление видеосоединения…';}});
+  current.on(RoomEvent.Reconnected,()=>{if(valid() && session===current){logEvent('room-connected',rooms.find(r=>r.id===id)?.name);const x=q('#roomInfo');if(x)x.textContent='Трансляции экрана операторов';reconnect.success();}});
   current.on(RoomEvent.Disconnected,()=>{
    if(!valid()||session!==current)return;
-   session=null;clearTiles();updatePlaceholder();
+   logEvent('room-disconnected',rooms.find(r=>r.id===id)?.name);session=null;clearTiles();updatePlaceholder();
    const x=q('#roomInfo');if(x)x.textContent='Сеанс завершён — повторное подключение';
    reconnect.failure(id);
   });
   await current.connect(config.wsUrl,config.token);
   if(!valid()||session!==current){current.disconnect();return;}
-  reconnect.success();
+  reconnect.success();logEvent('room-connected',rooms.find(r=>r.id===id)?.name);
   const x=q('#roomInfo');if(x)x.textContent='Трансляции экрана операторов';
   current.remoteParticipants.forEach(p=>p.trackPublications.forEach(pub=>{if(pub.track && pub.isSubscribed)attachTrack(pub.track,pub,p);}));
  }catch(err){
@@ -330,7 +344,7 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  const snapshotButton=document.createElement('button');snapshotButton.className='snapshot-button';snapshotButton.textContent='Кадр';snapshotButton.disabled=true;snapshotButton.title='Сохранить кадр в PNG в исходном разрешении, без интерфейса Windows';
  visual.append(video,warning);footer.append(n,badge,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
  grid.append(item);track.attach(video);
- const entry={item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,manualSubscription:false,snapshotButton,video,label:n.textContent,snapshotPending:false};tiles.set(id,entry);
+ const entry={item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,manualSubscription:false,snapshotButton,video,label:n.textContent,snapshotPending:false};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
  snapshotButton.onclick=()=>{
   const pending=saveTileSnapshot(entry);activeSnapshots.add(pending);void pending.then(()=>activeSnapshots.delete(pending),()=>activeSnapshots.delete(pending));
  };
@@ -352,7 +366,7 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
   await recorder.start(n.textContent).catch(()=>{});
  };
  entry.stopMonitor=monitorStream({track,video,isActive:()=>!item.hidden&&!track.isMuted,onUpdate:sample=>{
-  if(tiles.get(id)!==entry)return;entry.health=sample;renderEntryHealth(entry);if(wallMode)updateWallStatus();
+  if(tiles.get(id)!==entry)return;const transition=frameTransition(entry.lastFrameState,sample.state);if(transition)logEvent(transition,entry.label);if(['live','stale'].includes(sample.state))entry.lastFrameState=sample.state;entry.health=sample;renderEntryHealth(entry);if(wallMode)updateWallStatus();
  }});if(p.identity===videoTest.identity){
   if(typeof video.requestVideoFrameCallback==='function')video.requestVideoFrameCallback(()=>videoTest.onVideoFrame(p.identity));
   else video.addEventListener('playing',()=>videoTest.onVideoFrame(p.identity),{once:true});
@@ -360,10 +374,10 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  applyGridLayout();updatePlaceholder();
 }
 function detachTrack(track,pub,p,roomId=active){const id=`${roomId}:${p.identity}:${pub.trackSid}`;const obj=tiles.get(id);if(obj){void obj.recorder?.stop();obj.stopMonitor?.();obj.track.detach();obj.item.remove();tiles.delete(id);}if(focusedTile===id)focusedTile=null;applyGridLayout();updatePlaceholder();}
-function removeParticipant(p,roomId=active){for(const [id,t] of tiles){if(id.startsWith(roomId+':'+p.identity+':')){void t.recorder?.stop();t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
+function removeParticipant(p,roomId=active){const key=`${roomId}:${p.identity}`;const label=observedSources.get(key);if(label){logEvent('participant-left',label);observedSources.delete(key);}for(const [id,t] of tiles){if(id.startsWith(roomId+':'+p.identity+':')){void t.recorder?.stop();t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
 function updatePlaceholder(){const placeholder=q('#placeholder');if(placeholder)placeholder.hidden=tiles.size>0;if(wallMode)updateWallStatus();}
 window.addEventListener('beforeunload',event=>{
- if((activeRecordings.size||activeSnapshots.size)&&!closingRecordings){event.preventDefault();event.returnValue=false;void Promise.allSettled([...activeRecordings].map(r=>r.stop()).concat([...activeSnapshots])).then(()=>{closingRecordings=true;window.close();});return;}
+ if((activeRecordings.size||activeSnapshots.size||pendingEvents.size)&&!closingRecordings){event.preventDefault();event.returnValue=false;void Promise.allSettled([...activeRecordings].map(r=>r.stop()).concat([...activeSnapshots],[...pendingEvents])).then(()=>{closingRecordings=true;window.close();});return;}
  wall.stop();videoTest.stop(true);reconnect.stop();session?.disconnect();});
 async function selectAllControllers(){
  await disconnect();wallMode=true;active=null;wallStates.clear();
@@ -371,6 +385,7 @@ async function selectAllControllers(){
  applyGridLayout();paintRoomList();await wall.sync(rooms);updateWallStatus();
 }
 function removeRoomTiles(roomId){
+ for(const key of observedSources.keys())if(key.startsWith(roomId+':'))observedSources.delete(key);
  for(const [id,t] of tiles)if(t.roomId===roomId){void t.recorder?.stop();t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}
  applyGridLayout();updatePlaceholder();
 }
