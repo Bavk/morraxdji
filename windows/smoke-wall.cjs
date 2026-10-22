@@ -346,8 +346,9 @@ ipcMain.handle('archive:list',()=>archive.list());
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.archive-note b').length"),0);
  assert.equal((await archive.get(editedId)).note,'02:15 — проверка связи <b>текст</b>');
  await viewer.webContents.executeJavaScript("document.querySelector('.archive-stop').click()");
- const beforeRelink=await archive.get(editedId),movedRecording=path.join(dir,'relocated-recording.webm'),beforeRelinkBytes=fs.readFileSync(beforeRelink.filePath);
- assert.ok(path.resolve(beforeRelink.filePath).startsWith(path.resolve(dir)+path.sep));assert.ok(path.resolve(movedRecording).startsWith(path.resolve(dir)+path.sep));
+ const beforeRelink=await archive.get(editedId),movedRecording=path.join(fs.realpathSync.native(dir),'relocated-recording.webm'),beforeRelinkBytes=fs.readFileSync(beforeRelink.filePath);
+ const temporaryRoot=fs.realpathSync.native(dir);
+ for(const target of [fs.realpathSync.native(beforeRelink.filePath),movedRecording]){const relative=path.relative(temporaryRoot,target);assert.ok(relative&&relative!=='..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative),'relocation stays within canonical temporary test folder');}
  await until(()=>{try{fs.renameSync(beforeRelink.filePath,movedRecording);return true;}catch(error){if(['EBUSY','EACCES','EPERM'].includes(error.code))return false;throw error;}},'synthetic WebM moved inside temporary test folder');
  await viewer.webContents.executeJavaScript("document.querySelector('.archive-refresh').click()");
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.archive-relink').length===1&&document.querySelector('.archive-play').disabled"),'missing recording exposes relink button');
