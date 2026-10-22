@@ -39,11 +39,11 @@ function fixedEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x,y);
 }
 function encodeBase64(data) { return Buffer.from(JSON.stringify(data)).toString('base64url'); }
-function jwt({ identity, name, room, publisher, ttlSeconds = 300 }) {
+function jwt({ identity, name, room, publisher, ttlSeconds = 300, expiresAt = null }) {
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: 'HS256', typ: 'JWT' };
   const payload = {
-    iss: apiKey, sub: identity, name, iat: now, nbf: now, exp: now + ttlSeconds,
+    iss: apiKey, sub: identity, name, iat: now, nbf: now, exp: expiresAt===null?now+ttlSeconds:Math.min(now+ttlSeconds,Math.floor(expiresAt/1000)),
     video: { room, roomJoin: true, canPublish: publisher, canSubscribe: !publisher,
       canPublishData: false, ...(publisher ? { canPublishSources: ['screen_share'] } : {}) }
   };
@@ -135,7 +135,7 @@ const server = http.createServer(async (req,res) => {
           if(ttlSeconds<1)return reply(res,403,{error:'Срок доступа оператора истёк'});
           return reply(res,200,{wsUrl,roomId:target.id,roomName:target.name,operatorName:operator.name,
           streamProfile:preferences.profile==='auto'?roomSettings(target).profile:preferences.profile,
-          token:jwt({identity:`operator_${operator.id}`,name:operator.name,room:target.id,publisher:true,ttlSeconds})});
+          token:jwt({identity:`operator_${operator.id}`,name:operator.name,room:target.id,publisher:true,ttlSeconds,expiresAt:preferences.expiresAt})});
         }
       }
       return reply(res,401,{error:'Invalid or revoked key'});

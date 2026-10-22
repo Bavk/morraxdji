@@ -50,6 +50,8 @@ test('quality inheritance and preferred room respect access; removing a grant cl
  assert.equal((await call('POST','/api/operator/rooms',{key:operator.key},false)).data.rooms[0].id,b.id);
  const issued=(await call('POST','/api/operator/session',{key:operator.key},false)).data;assert.equal(issued.roomId,b.id);assert.equal(issued.streamProfile,'economy');
  await call('PATCH',grant(id),{roomIds:[a.id]});const saved=(await call('GET','/api/admin/rooms')).data.rooms[0].keys[0];assert.equal(saved.settings.preferredRoomId,null);
+ await call('PATCH',grant(id),{roomIds:[a.id,b.id]});await call('PATCH',op(id),{settings:{preferredRoomId:b.id}});await call('DELETE','/api/admin/rooms/'+b.id);
+ const repaired=await call('PATCH',op(id),{settings:{team:'Updated after room deletion'}});assert.equal(repaired.status,200);assert.equal(repaired.data.operator.settings.preferredRoomId,null);
 }));
 test('metadata survives reload without leaking private notes or allowing malformed/unauthenticated patches',()=>fixture(async({a,operator,call,restart,dataPath})=>{
  const id=operator.operator.id;await call('PATCH',op(id),{name:'Renamed',settings:{team:'FPV',device:'RC Plus',notes:'internal private memo'}});
