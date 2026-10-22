@@ -5,10 +5,10 @@ export class StreamRecorder {
  }
  async start(label){
   if(this.state!=='idle')throw Error('Запись уже запущена');
-  const mimeType=['video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm'].find(this.supports);
-  if(!mimeType)throw Error('Запись WebM не поддерживается этим Chromium');
   this.state='choosing';this.onState(this.state);
   try{
+   const mimeType=['video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm'].find(this.supports);
+   if(!mimeType)throw Error('Запись WebM не поддерживается этим Chromium');
    const selected=await this.api.beginRecording(label);
    if(!selected?.id){this.state='done';this.onState('canceled');return false;}
    this.id=selected.id;this.filePath=selected.filePath;

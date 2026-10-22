@@ -1,4 +1,8 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {StreamRecorder} from './stream-recorder.mjs';
+test('unsupported WebM is reported before choosing a file or starting recording',async()=>{
+ const states=[];const recorder=new StreamRecorder({api:{},track:{},supports:()=>false,onState:state=>states.push(state)});
+ await assert.rejects(recorder.start('FPV'),/не поддерживается/);assert.equal(recorder.state,'done');assert.equal(states.at(-1),'error');
+});
 function setup(overrides={}){
  const calls=[],states=[];let clonedStopped=false;
  const clone={stop:()=>clonedStopped=true};const source={clone:()=>clone};
