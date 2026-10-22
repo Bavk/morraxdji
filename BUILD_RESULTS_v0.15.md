@@ -2,18 +2,18 @@
 
 Исходники импортированы из Universal_Stream_Control_v0.15_GitHub_Ready_SOURCE.zip. Существующие модули Windows, Android, API, ретранслятора, тесты и документация сохранены. Предыдущий workflow, ожидавший ZIP, заменён сборкой исходников непосредственно из репозитория. Добавлен windows/package-lock.json. Исправлена установка Android SDK: setup-android теперь запрашивает platform-tools вместо удалённого tools.
 
-Собран коммит `91d1ac4` (полный SHA доступен в запуске). [Успешный GitHub Actions](https://github.com/Bavk/morraxdji/actions/runs/39762576657): все три задания завершились успешно.
+Собран коммит `01601bd` (полный SHA доступен в запуске). [Успешный GitHub Actions](https://github.com/Bavk/morraxdji/actions/runs/39764243154): все три задания завершились успешно.
 
 | Результат | Артефакт | Размер файла | SHA256 |
 | --- | --- | --- | --- |
-| Windows NSIS EXE | [Скачать ZIP](https://github.com/Bavk/morraxdji/actions/runs/39762576657/artifacts/12417794612) | 87319084 байт | `fba08e7f45a886b0f777160c38afa39aa95d864161fb0d7121d8cd62e68de2ab` |
-| Android debug APK | [Скачать ZIP](https://github.com/Bavk/morraxdji/actions/runs/39762576657/artifacts/12418312661) | 73294637 байт | `1973e11d47f8216bd1657d53d5bde640efda7623e4f1e7a7d3b570be8f4dedd0` |
+| Windows NSIS EXE | [Скачать ZIP](https://github.com/Bavk/morraxdji/actions/runs/39764243154/artifacts/12418939147) | 100553715 байт | `d453c242b6021bb2820337526daa18b4c7f495cf44a7eeac4fcf5c2ddb765333` |
+| Android debug APK | [Скачать ZIP](https://github.com/Bavk/morraxdji/actions/runs/39764243154/artifacts/12419138538) | 73294637 байт | `03e41381ebcf0232b636813040ee5f23012775e6c5a6dfb5f2511078fdfb73a4` |
 
 Артефакты хранятся 30 дней. Для скачивания GitHub Actions artifacts может потребоваться авторизация в GitHub. ZIP содержит бинарный файл и SHA256SUMS.txt.
 
 ## Проверки
 
-- 63 Node-теста прошли локально и в GitHub Actions; проверки структуры и repository preflight прошли.
+- 66 Node-тестов прошли локально и в GitHub Actions; проверки структуры и repository preflight прошли.
 - Поиск блокируемых файлов и явных форматов приватных ключей/токенов не обнаружил реальных секретов. Файл .env.example содержит только заполнители. Рабочие VPN-конфигурации и ключи не добавлялись.
 - Интерфейс Electron и preload успешно запущены в smoke-тесте GitHub Actions.
 - EXE создан electron-builder/NSIS; проверены MZ-заголовок и наличие серверных модулей в ресурсах.
@@ -25,6 +25,12 @@
 
 EXE не подписан сертификатом издателя. APK является debug-сборкой с отладочным ключом, а не production-релизом с постоянным ключом обновлений.
 
-Windows содержит управление локальным сервером LiveKit и просмотр; для запуска LiveKit требуется Docker Desktop, для Windows VPN — установленный WireGuard. Для работы между различными сетями требуется доступный и настроенный ретранслятор. Код USCV1 содержит параметры подключения и приватный ключ оператора: публиковать его нельзя.
+Windows содержит управление локальным сервером LiveKit и просмотр; LiveKit встроен в EXE и запускается напрямую без Docker/WSL2, для Windows VPN — установленный WireGuard. Для работы между различными сетями требуется доступный и настроенный ретранслятор. Код USCV1 содержит параметры подключения и приватный ключ оператора: публиковать его нельзя.
 
 Физическая установка, захват экрана на пультах разных производителей, соединение через реальный VPN и длительная передача видео в этой сессии не проверялись. План: FIRST_REAL_RUN_RU.md. Успешная компиляция не является подтверждением этих испытаний.
+
+## Нативный LiveKit без Docker
+
+В GitHub Actions и локально на Windows успешно выполнен scripts/native-livekit-smoke.cjs: запуск официального livekit-server.exe v1.13.8, авторизованное создание/перечисление участников/удаление комнаты, работа API приложения, остановка и повторный запуск, освобождение портов и восстановление процесса. В ресурсах EXE проверено наличие livekit-server.exe и LICENSE. SHA256 архива LiveKit закреплён в scripts/prepare-livekit.ps1. Рабочее приложение не вызывает Docker.
+
+Актуальная инструкция: [WINDOWS_NATIVE_RU.md](WINDOWS_NATIVE_RU.md).

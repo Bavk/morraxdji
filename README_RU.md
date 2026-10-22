@@ -1,5 +1,7 @@
 # Universal Stream Control v0.15
 
+> **Обновление: Windows без Docker.** Актуальный запуск и сборка описаны в [WINDOWS_NATIVE_RU.md](WINDOWS_NATIVE_RU.md). LiveKit встроен в EXE и запускается напрямую. Упоминания Docker/Compose и неподтверждённых сборок ниже относятся к исходной версии v0.15 и сохранены как история; Docker и WSL2 больше не требуются.
+
 **Сборка Windows EXE и Android APK через GitHub:** [GITHUB_START_RU.md](GITHUB_START_RU.md).
 
 > Текущая версия: исходный прототип. Реальная сборка EXE/APK и передача видео не подтверждены. Для публикации сначала проведите первую сборку и испытания.
