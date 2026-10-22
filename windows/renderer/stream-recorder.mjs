@@ -20,7 +20,8 @@ export class StreamRecorder {
    this.recorder.onstop=()=>{void this.finalize();};
    this.startedAt=Date.now();this.state='recording';this.recorder.start(1000);this.onState(this.state);return true;
   }catch(error){
-   this.error=error;this.clone?.stop();
+   this.error=error;
+   try{this.clone?.stop();}catch{}
    if(this.id)await this.api.finishRecording(this.id).catch(()=>{});
    this.state='done';this.onState('error',error);throw error;
   }finally{
@@ -29,7 +30,7 @@ export class StreamRecorder {
   }
  }
  enqueue(blob){
-  if(!blob?.size)return;
+  if(this.finalizing||!blob?.size)return;
   if(this.error)return;
   if(this.pending+blob.size>this.maxPendingBytes){this.error=Error('Диск не успевает сохранять запись');void this.stop();return;}
   this.pending+=blob.size;
@@ -49,7 +50,11 @@ export class StreamRecorder {
   if(this.state==='idle'||this.state==='done')return Promise.resolve();
   this.stopPromise=new Promise(resolve=>this.resolveStop=resolve);
   this.state='stopping';this.onState(this.state);
-  if(this.recorder?.state!=='inactive')this.recorder.stop();else void this.finalize();
+  try{if(this.recorder?.state!=='inactive')this.recorder.stop();else void this.finalize();}
+  catch{
+   this.error??=Error('Браузер не смог завершить видеозапись. Файл может быть неполным.');
+   void this.finalize();
+  }
   return this.stopPromise;
  }
  async finalize(){
@@ -57,7 +62,8 @@ export class StreamRecorder {
   // Capture the final dataavailable event before closing the file.
   if(!this.stopPromise)this.stopPromise=new Promise(resolve=>this.resolveStop=resolve);
   this.state='stopping';this.onState(this.state);
-  await this.tail;this.clone?.stop();
+  await this.tail;
+  try{this.clone?.stop();}catch{this.error??=Error('Не удалось освободить трек записи. Проверьте сохранённый файл.');}
   let result;
   try{result=await this.api.finishRecording(this.id);if(!result.saved)throw Error(result.error||'В записи не было видеоданных');if(this.error)throw this.error;}
   catch(error){this.error=error;}

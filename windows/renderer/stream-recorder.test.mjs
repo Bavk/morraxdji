@@ -9,8 +9,20 @@ function setup(overrides={}){
  const media={state:'inactive',start(){this.state='recording';},stop(){this.state='inactive';queueMicrotask(()=>{this.ondataavailable({data:new Blob(['last'])});this.onstop();});}};
  const api={beginRecording:async()=>({id:'id',filePath:'test.webm'}),appendRecording:async(id,bytes)=>calls.push(['write',new TextDecoder().decode(bytes)]),finishRecording:async()=>{calls.push(['finish']);return {saved:true,filePath:'test.webm',bytes:8};},...overrides};
  const recorder=new StreamRecorder({api,track:source,makeStream:t=>{assert.equal(t,clone);return {};},createRecorder:()=>media,supports:()=>true,onState:(state,data)=>states.push([state,data])});
- return {recorder,media,calls,states,get cloneStopped(){return clonedStopped;}};
+ return {recorder,media,clone,calls,states,get cloneStopped(){return clonedStopped;}};
 }
+
+test('MediaRecorder stop exception closes file and resolves stop without claiming success',async()=>{
+ const h=setup();await h.recorder.start('FPV');h.media.ondataavailable({data:new Blob(['first'])});await h.recorder.tail;
+ h.media.stop=()=>{throw Error('InvalidStateError');};await h.recorder.stop();assert.equal(h.recorder.state,'done');assert.equal(h.cloneStopped,true);assert.equal(h.calls.filter(([type])=>type==='finish').length,1);assert.equal(h.states.some(([state])=>state==='saved'),false);assert.match(h.recorder.error.message,/неполным/);
+ h.media.ondataavailable({data:new Blob(['late'])});h.media.onstop();await Promise.resolve();assert.equal(h.calls.filter(([type])=>type==='write').length,1);assert.equal(h.calls.filter(([type])=>type==='finish').length,1);
+});
+test('clone stop exception cannot prevent file finalization or keep busy state',async()=>{
+ const h=setup();await h.recorder.start('FPV');h.clone.stop=()=>{throw Error('track failure');};await h.recorder.stop();assert.equal(h.recorder.state,'done');assert.equal(h.calls.filter(([type])=>type==='finish').length,1);assert.equal(h.states.at(-1)[0],'error');
+});
+test('start failure cleans file even when clone cleanup also fails',async()=>{
+ const h=setup();h.media.start=()=>{throw Error('encoder unavailable');};h.clone.stop=()=>{throw Error('cleanup failure');};await assert.rejects(h.recorder.start('FPV'),/encoder unavailable/);assert.equal(h.recorder.state,'done');assert.equal(h.calls.filter(([type])=>type==='finish').length,1);assert.equal(h.states.at(-1)[0],'error');
+});
 test('final chunk is written before file closes; only cloned source is stopped',async()=>{
  const h=setup();await h.recorder.start('FPV');h.media.ondataavailable({data:new Blob(['first'])});await h.recorder.stop();assert.deepEqual(h.calls,[['write','first'],['write','last'],['finish']]);assert.equal(h.cloneStopped,true);assert.equal(h.recorder.state,'done');assert.equal(h.states.some(([s])=>s==='saved'),true);
 });
