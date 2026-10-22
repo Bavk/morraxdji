@@ -1,3 +1,4 @@
+import {confirmViewSwitch} from './view-switch.mjs';
 import {showActiveRecordings} from './active-recordings.mjs';
 import {filteredLayout} from './stream-filter.mjs';
 import {recordingBusy,receiveEnabled,toggleReceive} from './receive-control.mjs';
@@ -282,7 +283,7 @@ async function refresh(fallback=true){try{const data=await window.streamControl.
  const pending=q('#pendingRoomCleanup');if(pending)pending.textContent=data.pendingDeletedRooms?`Защита удалённых комнат (старые токены): ${data.pendingDeletedRooms}`:'';
  if(!rooms.some(r=>r.id===active)){active=!wallMode&&fallback&&rooms.length?rooms[0].id:null;}
  paintRoomList();if(wallMode){await wall.sync(rooms);applyGridLayout();updateWallStatus();}else if(active){await pollPresence();if(!session)await connectRoom(active);}}catch(err){displayErr(err);}}
-async function selectRoom(id){if(!wallMode&&active===id&&session)return;await disconnect();wallMode=false;wallStates.clear();q('#wallRoomStates').hidden=true;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
+async function selectRoom(id){if(!wallMode&&active===id&&session)return;if(!confirmViewSwitch(activeRecordings,message=>confirm(message)))return;await disconnect();wallMode=false;wallStates.clear();q('#wallRoomStates').hidden=true;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
 function clearTiles(){
  for(const entry of tiles.values()){void entry.recorder?.stop();entry.stopMonitor?.();entry.track.detach();entry.item.remove();}
  tiles.clear();observedSources.clear();focusedTile=null;updateStreamFilterSummary(0,0);
@@ -431,6 +432,8 @@ window.addEventListener('beforeunload',event=>{
  if((activeRecordings.size||activeSnapshots.size||pendingEvents.size)&&!closingRecordings){event.preventDefault();event.returnValue=false;void Promise.allSettled([...activeRecordings].map(r=>r.stop()).concat([...activeSnapshots],[...pendingEvents])).then(()=>{closingRecordings=true;window.close();});return;}
  wall.stop();videoTest.stop(true);reconnect.stop();session?.disconnect();});
 async function selectAllControllers(){
+ if(wallMode)return;
+ if(!confirmViewSwitch(activeRecordings,message=>confirm(message)))return;
  await disconnect();wallMode=true;active=null;wallStates.clear();
  q('#content').innerHTML='<div id="grid" class="stream-grid"></div><div id="placeholder" class="empty">Ожидание трансляций со всех пультов…</div>';
  applyGridLayout();paintRoomList();await wall.sync(rooms);updateWallStatus();
