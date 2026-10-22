@@ -1,6 +1,6 @@
 # Universal Stream Control v0.15 — сборка на GitHub, пошагово
 
-> **Обновление 22.10.2026:** исходники опубликованы в публичном репозитории [Bavk/morraxdji](https://github.com/Bavk/morraxdji). [GitHub Actions успешно собрал EXE и APK](https://github.com/Bavk/morraxdji/actions/runs/39781247562). Ссылки и ограничения приведены в [README](README.md) и [отчёте сборки](BUILD_RESULTS_v0.28.md). Ниже сохранена исходная инструкция для самостоятельного развёртывания нового репозитория.
+> **Обновление 22.10.2026:** исходники опубликованы в публичном репозитории [Bavk/morraxdji](https://github.com/Bavk/morraxdji). [GitHub Actions успешно собрал EXE и APK](https://github.com/Bavk/morraxdji/actions/runs/39782042334). Ссылки и ограничения приведены в [README](README.md) и [отчёте сборки](BUILD_RESULTS_v0.29.md). Ниже сохранена исходная инструкция для самостоятельного развёртывания нового репозитория.
 
 ## Что нужно
 
