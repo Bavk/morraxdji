@@ -1,6 +1,6 @@
 {
   "name": "universal-stream-control-windows",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "private": true,
   "main": "main.cjs",
   "scripts": {
@@ -38,7 +38,8 @@
       "vite.config.mjs",
       "room-lifecycle.cjs",
       "native-livekit.cjs",
-      "recording-store.cjs"
+      "recording-store.cjs",
+      "recording-archive.cjs"
     ],
     "directories": {
       "output": "release"

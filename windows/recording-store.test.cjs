@@ -1,5 +1,9 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
 const {RecordingStore,recordingName}=require('./recording-store.cjs');
+test('archive metadata failure does not turn a saved video into a failed recording',async()=>{
+ const store=new RecordingStore({onSaved:async()=>{throw Error('index unavailable');},open:async()=>({writeFile:async()=>{},sync:async()=>{},close:async()=>{}})});
+ const s=await store.begin(1,'a.webm',{label:'Пульт'});await store.append(1,s.id,new Uint8Array([1]));const result=await store.finish(1,s.id);assert.equal(result.saved,true);assert.match(result.archiveWarning,/сохранено/);assert.equal(result.label,'Пульт');
+});
 test('recording chunks are serialized and finalization closes a complete owner-scoped file',async()=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'usc-rec-test-'));const store=new RecordingStore();
  try{const s=await store.begin(1,path.join(dir,'a.webm'));await assert.rejects(async()=>store.append(2,s.id,new Uint8Array([9])),/недоступен/);

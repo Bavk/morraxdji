@@ -1,6 +1,6 @@
 // Windows owns the API lifecycle and the bundled native LiveKit SFU.
 // No cloud LiveKit credentials or external API server are required for LAN testing.
-const {app, BrowserWindow, ipcMain, safeStorage, dialog} = require('electron');
+const {app, BrowserWindow, ipcMain, safeStorage, dialog, protocol, shell} = require('electron');
 const {manager:makeVpnManager} = require('./vpn-manager.cjs');
 const {cleanupStalePeers,deleteRoomThenCleanup} = require('./room-lifecycle.cjs');
 const {makeDiagnosticReport} = require('./diagnostic-report.cjs');
@@ -9,7 +9,11 @@ const {checkMediaPorts,assertMediaPortsAvailable} = require('./preflight.cjs');
 const {renderLivekitConfig} = require('./compose-config.cjs');
 const {NativeLiveKit,binaryPath,managedProcess} = require('./native-livekit.cjs');
 const {RecordingStore,recordingName}=require('./recording-store.cjs');
-const recordings=new RecordingStore();
+const {RecordingArchive,registerArchiveScheme,handleArchiveProtocol}=require('./recording-archive.cjs');
+registerArchiveScheme(protocol);
+let archiveInstance;
+function recordingArchive(){return archiveInstance??=new RecordingArchive(path.join(app.getPath('userData'),'recordings-index.json'));}
+const recordings=new RecordingStore({onSaved:result=>recordingArchive().add(result)});
 const {findWireGuard,installTunnel} = require('./wireguard-service.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -188,12 +192,20 @@ ipcMain.handle('recording:begin',async(event,label)=>{
     filters:[{name:'Видео WebM (без звука)',extensions:['webm']}]
   });
   if(canceled||!filePath||event.sender.isDestroyed())return {canceled:true};
-  const result=await recordings.begin(owner,filePath);
+  const result=await recordings.begin(owner,filePath,{label});
   if(event.sender.isDestroyed()){await recordings.finish(owner,result.id);return {canceled:true};}
   return result;
 });
 ipcMain.handle('recording:append',(event,id,bytes)=>recordings.append(event.sender.id,id,bytes));
 ipcMain.handle('recording:finish',(event,id)=>recordings.finish(event.sender.id,id));
+ipcMain.handle('archive:list',()=>recordingArchive().list());
+ipcMain.handle('archive:play',(_,id)=>recordingArchive().playback(id));
+ipcMain.handle('archive:reveal',async(_,id)=>{shell.showItemInFolder(await recordingArchive().revealPath(id));return {shown:true};});
+ipcMain.handle('archive:forget',(_,id)=>recordingArchive().forget(id));
+ipcMain.handle('archive:import',async event=>{
+ const result=await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender),{title:'Добавить записи в архив',filters:[{name:'Видео WebM',extensions:['webm']}],properties:['openFile','multiSelections']});
+ if(result.canceled)return {canceled:true};return recordingArchive().importFiles(result.filePaths);
+});
 ipcMain.handle('server:start',(_,ip,mode)=>startServer(String(ip),String(mode||'lan')));
 ipcMain.handle('vpn:configure',(_,data)=>vpn().configure(data));
 ipcMain.handle('vpn:status',()=>vpn().status());
@@ -246,7 +258,7 @@ const primaryInstance = app.requestSingleInstanceLock();
 if(!primaryInstance){app.quit();}
 else {
   app.on('second-instance',()=>{const win=BrowserWindow.getAllWindows()[0];if(win){if(win.isMinimized())win.restore();win.focus();}});
-  app.whenReady().then(mainWindow);
+  app.whenReady().then(()=>{handleArchiveProtocol(protocol,recordingArchive);mainWindow();});
 }
 app.on('before-quit',e=>{
   if(shuttingDown || (!apiServer && !livekit.child && !starting))return;

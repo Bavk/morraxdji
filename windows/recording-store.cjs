@@ -3,13 +3,13 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const crypto=require('node:crypto');
 class RecordingStore {
- constructor({open=fs.open,maxSessions=4,maxChunkBytes=4*1024*1024,maxPendingBytes=16*1024*1024}={}){Object.assign(this,{open,maxSessions,maxChunkBytes,maxPendingBytes});this.sessions=new Map();this.opening=0;}
- async begin(owner,filePath){
+ constructor({open=fs.open,maxSessions=4,maxChunkBytes=4*1024*1024,maxPendingBytes=16*1024*1024,onSaved=async()=>{}}={}){Object.assign(this,{open,maxSessions,maxChunkBytes,maxPendingBytes,onSaved});this.sessions=new Map();this.opening=0;}
+ async begin(owner,filePath,{label=''}={}){
   if(this.sessions.size+this.opening>=this.maxSessions)throw Error('Одновременно можно записывать не более четырёх потоков');
   if(path.extname(filePath).toLowerCase()!=='.webm')throw Error('Для записи выберите файл .webm');
   this.opening++;let file;
   try{file=await this.open(filePath,'wx',0o600);}finally{this.opening--;}
-  const id=crypto.randomUUID();this.sessions.set(id,{owner,file,filePath,tail:Promise.resolve(),bytes:0,pending:0,error:null,finishing:null});
+  const id=crypto.randomUUID();this.sessions.set(id,{owner,file,filePath,label,startedAt:new Date().toISOString(),tail:Promise.resolve(),bytes:0,pending:0,error:null,finishing:null});
   return {id,filePath};
  }
  session(owner,id){const session=this.sessions.get(id);if(!session||session.owner!==owner)throw Error('Сеанс записи недоступен');return session;}
@@ -31,7 +31,9 @@ class RecordingStore {
    try{await session.file.sync();}catch(error){session.error??=error;}
    try{await session.file.close();}catch(error){session.error??=error;}
    this.sessions.delete(id);
-   return {saved:!session.error&&session.bytes>0,filePath:session.filePath,bytes:session.bytes,error:session.error?'Ошибка записи на диск. Файл мог сохраниться частично.':null};
+   const result={saved:!session.error&&session.bytes>0,filePath:session.filePath,label:session.label,startedAt:session.startedAt,bytes:session.bytes,error:session.error?'Ошибка записи на диск. Файл мог сохраниться частично.':null};
+   if(result.saved)try{await this.onSaved(result);}catch{result.archiveWarning='Видео сохранено, но не добавлено в архив. Его можно добавить вручную.';}
+   return result;
   })();return session.finishing;
  }
  async closeOwner(owner){await Promise.allSettled([...this.sessions].filter(([,s])=>s.owner===owner).map(([id])=>this.finish(owner,id)));}

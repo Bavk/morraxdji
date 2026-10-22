@@ -1,5 +1,6 @@
 import { Room,RoomEvent,Track } from 'livekit-client';
 import './style.css';
+import {showRecordingArchive} from './recording-archive-view.mjs';
 import {StreamRecorder} from './stream-recorder.mjs';
 import {monitorStream,formatHealth} from './stream-health.mjs';
 import {MultiRoomViewer} from './multi-room-viewer.mjs';
@@ -63,6 +64,7 @@ async function startScreen(){
  <label>Публичный ключ WireGuard ретранслятора</label><input id="relayPub" required placeholder="Ключ Base64" />
  <label>Токен управления ретранслятором</label><input id="relayToken" type="password" required autocomplete="off" />
  <button class="minor" type="submit">Сохранить VPN и создать конфигурацию Windows</button></form>`}</details>
+ <button id="openArchive" class="minor" type="button">▤ Архив записей</button>
  <button id="runDiagnostics" class="minor" type="button">🔎 Проверить готовность Windows</button>
  <button id="saveDiagnostics" class="minor" type="button">📄 Сохранить диагностику без ключей</button>
  <button id="recoverServer" class="minor" type="button" hidden>♻ Завершить оставшийся LiveKit и восстановить запуск</button><p id="diagResult" class="small-note" aria-live="polite"></p><p class="small-note">Видеосервер LiveKit встроен и запускается автоматически без Docker. VPN требует однократной настройки Linux-ретранслятора и WireGuard на Windows; Android VPN встроен в APK.</p>
@@ -74,6 +76,7 @@ async function startScreen(){
    try{const d=await window.streamControl.activateVpn();q('#diagResult').textContent=d.vpnInterfaceUp?'VPN включён — теперь можно запускать сервер.':'Команда выполнена, но VPN-адрес ещё не появился. Проверьте WireGuard.';}
    catch(err){showError(err);}finally{activate.disabled=false;activate.textContent='⚡ Включить VPN на Windows';}
  };
+ q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#runDiagnostics').onclick=async()=>{
    const button=q('#runDiagnostics');button.disabled=true;
    try{
@@ -123,7 +126,7 @@ function dashboard(){
  presenceTimer=setInterval(()=>{if(active)pollPresence();},8000);
  el.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand">◉ UNIVERSAL STREAM CONTROL</div><div class="sectionlabel">КОМНАТЫ</div>
  <button id="allControllers" class="minor wall-button">▦ Все пульты</button><div id="roomList" class="room-list"></div><button id="addRoom" class="minor">+ Создать комнату</button>
- <div class="sidebar-footer"><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
+ <div class="sidebar-footer"><button id="openArchive" class="minor">▤ Архив записей</button><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
  <div id="endpoint" class="endpoint"></div><div id="pendingRoomCleanup" class="muted" role="status"></div><button id="copyUrl" class="minor">Копировать адрес</button>
  <button id="reconcileRevoked" class="minor">Проверить отключения операторов</button>
  <button id="saveDashboardDiagnostics" class="minor">📄 Сохранить диагностику</button>
@@ -135,6 +138,7 @@ function dashboard(){
  </select></label><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
  <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
+ q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#allControllers').onclick=()=>selectAllControllers();
  q('#wallFullscreen').onclick=()=>q('#content').requestFullscreen?.().catch(displayErr);
  q('#endpoint').textContent=serverInfo?.operatorUrl||'';
@@ -335,7 +339,7 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
    if(state==='recording'){entry.manualSubscription=true;pub.setEnabled(true);}
    if(['saved','error','canceled'].includes(state)){
     activeRecordings.delete(recorder);if(entry.manualSubscription&&tiles.get(id)===entry)pub.setEnabled(!item.hidden);
-    if(state==='saved')recordingNotice('Запись сохранена: '+data.filePath);
+    if(state==='saved')recordingNotice('Запись сохранена: '+data.filePath+(data.archiveWarning?' · '+data.archiveWarning:''));
     if(state==='error')recordingNotice('Ошибка записи: '+(data.message||String(data))+(recorder.filePath?' · Файл может быть неполным: '+recorder.filePath:''),true);
    }
   }});entry.recorder=recorder;activeRecordings.add(recorder);

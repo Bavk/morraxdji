@@ -12,6 +12,7 @@ app.disableHardwareAcceleration();
 // must never be started just to verify the desktop UI.
 ipcMain.handle('server:status', async () => ({running:false,mode:'lan',ips:['192.0.2.20'],
   vpn:{configured:false,peerCount:0},lanIp:null,operatorUrl:null,mediaUrl:null}));
+ipcMain.handle('archive:list',()=>[]);
 let finished = false;
 const failures = [];
 function end(code, message){
@@ -42,7 +43,17 @@ app.whenReady().then(async()=>{
         && document.querySelector('#startButton')),
       error: document.querySelector('#error')?.textContent || ''
     })`).catch(error=>({error:String(error)}));
-    if(result.api && result.screen && !result.error){clearTimeout(timeout);return end(0,'Renderer, preload API and startup screen loaded');}
+    if(result.api && result.screen && !result.error){
+      await win.webContents.executeJavaScript("document.querySelector('#openArchive').click()");
+      for(let i=0;i<30;i++){
+        if(await win.webContents.executeJavaScript("Boolean(document.querySelector('#recordingArchive .archive-list .empty'))")){
+          await win.webContents.executeJavaScript("document.querySelector('.archive-close').click()");
+          clearTimeout(timeout);return end(0,'Renderer, preload API, startup screen and offline recording archive loaded');
+        }
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      return end(1,'Offline recording archive not ready');
+    }
     if(result.error) failures.push(result.error.slice(0,220));
     await new Promise(resolve=>setTimeout(resolve,200));
   }

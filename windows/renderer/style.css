@@ -45,4 +45,18 @@
 .recording-notice{position:fixed;right:20px;bottom:20px;max-width:min(600px,90vw);padding:14px 16px;border:1px solid #428460;border-radius:10px;background:#163326;color:#c1f4d6;box-shadow:0 8px 30px #0008;display:flex;gap:12px;align-items:flex-start;z-index:1000;overflow-wrap:anywhere}
 .recording-notice button{padding:0 7px;background:transparent;font-size:20px;color:inherit}
 .recording-notice.recording-error{border-color:#b96067;background:#49232d;color:#ffd0d4}
+.recording-archive{width:min(1120px,95vw);max-height:92vh;overflow:auto;padding:24px;border:1px solid #456184;border-radius:16px;background:#162237;color:#e7eefb;box-shadow:0 20px 90px #0008}
+.recording-archive::backdrop{background:#050b15d9}
+.archive-head,.archive-player-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.archive-head h2{margin:0 0 6px;font-size:22px}.archive-head p{margin:0 0 16px;font-size:12px}
+.archive-tools{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.archive-search{flex:1;min-width:200px;border:1px solid #456184;border-radius:8px;background:#101a2b;color:#e7eefb;padding:12px}
+.archive-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 0;border-bottom:1px solid #34455e}
+.archive-row-info{display:grid;gap:6px;min-width:0}.archive-row-info>strong{overflow-wrap:anywhere}.archive-row-info>.muted{font-size:12px}
+.archive-location{font-size:11px;color:#7f99ba;overflow-wrap:anywhere}
+.archive-row-actions{display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0}.archive-row-actions button{font-size:12px;padding:9px 12px}
+.archive-summary{font-size:12px}.archive-error{padding:12px;border:1px solid #a36a38;border-radius:8px;color:#ffd8a4;background:#3c2b20;font-size:12px}
+.archive-player{margin:16px 0;padding:14px;border:1px solid #456184;border-radius:12px;background:#0e1727}.archive-player video{width:100%;max-height:52vh;display:block;margin-top:12px;background:#050b15;object-fit:contain}.archive-playing-name{overflow-wrap:anywhere}
+.archive-pages{display:flex;justify-content:center;align-items:center;gap:14px;margin-top:18px;color:#9fb4cf;font-size:12px}
+@media(max-width:750px){.archive-row{align-items:flex-start;flex-direction:column}.archive-row-actions{width:100%}.recording-archive{padding:16px}}
 @media(max-width:850px){.stream-grid.fixed-grid{grid-template-columns:repeat(min(var(--grid-columns),2),minmax(0,1fr))}}
