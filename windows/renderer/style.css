@@ -77,3 +77,5 @@
 .stream-summary{padding:10px 24px;background:#162338;border-bottom:1px solid #2b3d58;color:#b9d6ef;font-size:12px;line-height:1.8;font-variant-numeric:tabular-nums}
 
 .favorite-button{position:absolute;top:8px;right:8px;background:#101827dc;color:#ffdc78;border:1px solid #74603f;border-radius:7px;font-size:22px;padding:0 8px;line-height:1.4}.favorites-filter{display:flex;align-items:center;gap:6px;white-space:nowrap}.stream-filter .favorites-filter input{flex:none;min-width:0;width:auto;margin:0}
+
+.archive-tools select{max-width:100%;border:1px solid #456184;border-radius:8px;background:#101a2b;color:#e7eefb;padding:10px}

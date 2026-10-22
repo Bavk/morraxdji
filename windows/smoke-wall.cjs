@@ -290,6 +290,16 @@ app.whenReady().then(async()=>{
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length"),1);
  await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  fs.writeFileSync(path.join(__dirname,'release/archive-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
+ const archivePlayback=await viewer.webContents.executeJavaScript("document.querySelector('.archive-player video').src");
+ await viewer.webContents.executeJavaScript("{const sort=document.querySelector('.archive-sort');sort.value='name';sort.dispatchEvent(new Event('change'));}");
+ assert.deepEqual(await viewer.webContents.executeJavaScript("Array.from(document.querySelectorAll('#recordingArchive .archive-row-info strong'),e=>e.textContent)"),['Пульт A · Тест Windows','Пульт B · Тест Windows']);
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('.archive-player video').src"),archivePlayback);
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('.archive-player video').paused"),false);
+ await viewer.webContents.executeJavaScript("{const filter=document.querySelector('.archive-availability');filter.value='missing';filter.dispatchEvent(new Event('change'));}");
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('#recordingArchive .archive-row').length"),0);
+ await viewer.webContents.executeJavaScript("{const filter=document.querySelector('.archive-availability');filter.value='available';filter.dispatchEvent(new Event('change'));}");
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('#recordingArchive .archive-row').length"),2);
+ await viewer.webContents.executeJavaScript("{const filter=document.querySelector('.archive-availability');filter.value='all';filter.dispatchEvent(new Event('change'));}");
  await viewer.webContents.executeJavaScript("document.querySelector('.archive-stop').click();const input=document.querySelector('.archive-search');input.value='Пульт A';input.dispatchEvent(new Event('input'))");
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.archive-row').length"),1);
  await viewer.webContents.executeJavaScript("document.querySelector('.archive-reveal').click()");await until(()=>revealed.length===1,'reveal known file');
