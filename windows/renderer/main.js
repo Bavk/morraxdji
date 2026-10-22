@@ -1,3 +1,4 @@
+import {wallShortcut} from './wall-shortcuts.mjs';
 import {confirmViewSwitch} from './view-switch.mjs';
 import {showActiveRecordings} from './active-recordings.mjs';
 import {filteredLayout} from './stream-filter.mjs';
@@ -160,7 +161,7 @@ function dashboard(){
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
  </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
- <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
+ <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  mountPowerSettings(serverInfo?.power);
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
@@ -304,8 +305,11 @@ function applyGridLayout(){
  const view=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name})),streamQuery,focusedTile);focusedTile=view.focusedId;const visible=new Set(view.visible);
  grid.classList.toggle('focused-grid',Boolean(focusedTile));
  const order=wallLayout.sorted([...new Set([...tiles.values()].map(t=>t.sourceKey))]);
+ const shortcutIds=view.matching.slice().sort((a,b)=>order.indexOf(tiles.get(a).sourceKey)-order.indexOf(tiles.get(b).sourceKey));
  for(const [id,entry] of tiles){
   entry.item.style.order=String(order.indexOf(entry.sourceKey));
+  const shortcutIndex=shortcutIds.indexOf(id);entry.shortcutNumber.textContent=shortcutIndex<9?String(shortcutIndex+1):'';entry.shortcutNumber.hidden=shortcutIndex<0||shortcutIndex>=9;
+  entry.focus.title=shortcutIndex>=0&&shortcutIndex<9?'Крупно: клавиша '+(shortcutIndex+1)+'; Escape — сетка':'Увеличить выбранный поток';
   entry.item.hidden=!visible.has(id);
   entry.item.classList.toggle('is-focused',id===focusedTile);
   entry.focus.textContent=id===focusedTile?'Вернуть сетку':'Крупно';
@@ -390,10 +394,11 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  const recordButton=document.createElement('button');recordButton.className='record-button';recordButton.textContent='● Запись';recordButton.title='Сохранить видео этого пульта в WebM без звука';
  const snapshotButton=document.createElement('button');snapshotButton.className='snapshot-button';snapshotButton.textContent='Кадр';snapshotButton.disabled=true;snapshotButton.title='Сохранить кадр в PNG в исходном разрешении, без интерфейса Windows';
  const pauseButton=document.createElement('button');pauseButton.className='pause-button';pauseButton.textContent='Ⅱ Пауза';
- visual.append(video,warning);footer.append(n,badge,pauseButton,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
+ const shortcutNumber=document.createElement('span');shortcutNumber.className='tile-shortcut';shortcutNumber.setAttribute('aria-hidden','true');
+ visual.append(video,warning,shortcutNumber);footer.append(n,badge,pauseButton,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
  grid.append(item);track.attach(video);
  const stableKey=sourceKey(String(roomId),p.identity);item.dataset.source=stableKey;wallLayout.remember([stableKey]);
- const entry={sourceKey:stableKey,item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,snapshotButton,video,label:n.textContent,snapshotPending:false,pauseButton,receivePaused:false};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
+ const entry={sourceKey:stableKey,item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,snapshotButton,video,label:n.textContent,snapshotPending:false,pauseButton,receivePaused:false,shortcutNumber};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
  pauseButton.onclick=()=>{if(toggleReceive(entry)){entry.lastFrameState=null;applyReceiveState(entry);}};
  snapshotButton.onclick=()=>{
   const pending=saveTileSnapshot(entry);activeSnapshots.add(pending);void pending.then(()=>activeSnapshots.delete(pending),()=>activeSnapshots.delete(pending));
@@ -428,6 +433,12 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
 function detachTrack(track,pub,p,roomId=active){const id=`${roomId}:${p.identity}:${pub.trackSid}`;const obj=tiles.get(id);if(obj){void obj.recorder?.stop();obj.stopMonitor?.();obj.track.detach();obj.item.remove();tiles.delete(id);}if(focusedTile===id)focusedTile=null;applyGridLayout();updatePlaceholder();}
 function removeParticipant(p,roomId=active){const key=`${roomId}:${p.identity}`;const label=observedSources.get(key);if(label){logEvent('participant-left',label);observedSources.delete(key);}for(const [id,t] of tiles){if(id.startsWith(roomId+':'+p.identity+':')){void t.recorder?.stop();t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
 function updatePlaceholder(){const placeholder=q('#placeholder');if(placeholder)placeholder.hidden=tiles.size>0;if(wallMode)updateWallStatus();}
+window.addEventListener('keydown',event=>{
+ const target=event.composedPath()[0];const blocked=Boolean(document.fullscreenElement||q('dialog[open]')||target?.isContentEditable||target?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])'));
+ const ids=[...tiles].filter(([,entry])=>!entry.shortcutNumber.hidden).sort(([,a],[,b])=>Number(a.item.style.order)-Number(b.item.style.order)).map(([id])=>id);
+ const action=wallShortcut(event,{ids,focusedId:focusedTile,blocked});if(!action)return;
+ event.preventDefault();focusedTile=action.focus;applyGridLayout();if(focusedTile)tiles.get(focusedTile)?.item.scrollIntoView({block:'nearest'});
+});
 window.addEventListener('beforeunload',event=>{
  if((activeRecordings.size||activeSnapshots.size||pendingEvents.size)&&!closingRecordings){event.preventDefault();event.returnValue=false;void Promise.allSettled([...activeRecordings].map(r=>r.stop()).concat([...activeSnapshots],[...pendingEvents])).then(()=>{closingRecordings=true;window.close();});return;}
  wall.stop();videoTest.stop(true);reconnect.stop();session?.disconnect();});

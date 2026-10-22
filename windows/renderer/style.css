@@ -71,3 +71,5 @@
 .power-setting{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#bacce5;line-height:1.5}.power-setting input{width:auto!important;flex-shrink:0;margin-top:3px}.sidebar #powerState{font-size:11px;line-height:1.5;color:#93a2ba}
 
 .sidebar{overflow-y:auto}
+
+.tile-shortcut{position:absolute;top:10px;left:10px;background:#101827c9;color:#d8e8ff;border:1px solid #56729b;border-radius:6px;padding:3px 8px;font-size:12px;pointer-events:none}.shortcut-help{color:#93a2ba;font-size:11px;white-space:nowrap}
