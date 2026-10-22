@@ -53,8 +53,11 @@ export class StreamRecorder {
   this.state='stopping';this.onState(this.state);
   await this.tail;this.clone?.stop();
   let result;
-  try{result=await this.api.finishRecording(this.id);if(!result.saved)throw Error(result.error||'В записи не было видеоданных');if(this.error)throw this.error;this.onState('saved',result);}
-  catch(error){this.error=error;this.onState('error',error);}
-  this.state='done';this.resolveStop?.(result);
+  try{result=await this.api.finishRecording(this.id);if(!result.saved)throw Error(result.error||'В записи не было видеоданных');if(this.error)throw this.error;}
+  catch(error){this.error=error;}
+  // UI observers must see the terminal state when releasing receive/pause controls.
+  this.state='done';
+  try{this.onState(this.error?'error':'saved',this.error||result);}
+  finally{this.resolveStop?.(result);}
  }
 }

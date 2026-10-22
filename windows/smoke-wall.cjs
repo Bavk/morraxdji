@@ -192,6 +192,8 @@ app.whenReady().then(async()=>{
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('#activeRecordingsPanel .recordings-stop').length===2"),'panel before individual stop');
  await viewer.webContents.executeJavaScript("document.querySelector('.recordings-stop').click()");
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('#activeRecordingsPanel .archive-row').length===1"),'panel reflects individual finalization');
+ assert.equal(await viewer.webContents.executeJavaScript("!document.querySelector('.tile .pause-button').disabled && !document.querySelector('.tile .record-button').disabled"),true);
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('#streamSearchSummary').textContent.includes('Скрытых записей: 1')"),true);
  await viewer.webContents.executeJavaScript("document.querySelector('.recordings-close').click();document.querySelector('#clearStreamSearch').click()");
  await until(()=>savedRecordings.length===1,'manual recording finalization');
  assert.equal(recordingStore.sessions.size,1);assert.equal(savedRecordings[0].saved,true);
@@ -300,5 +302,5 @@ app.whenReady().then(async()=>{
  assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===6,'final chunk saved before window closes');await verifyRecording(savedRecordings[5]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op');
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

@@ -23,3 +23,15 @@ test('source removal during file selection cancels a late selection',async()=>{
 test('failed disk write stops recorder and closes file without claiming success',async()=>{
  const h=setup({appendRecording:async()=>{throw Error('disk full');}});await h.recorder.start('FPV');h.media.ondataavailable({data:new Blob(['first'])});await h.recorder.tail;await h.recorder.stop();assert.equal(h.states.some(([s])=>s==='saved'),false);assert.equal(h.states.some(([s])=>s==='error'),true);assert.equal(h.calls.at(-1)[0],'finish');
 });
+
+test('saved callback observes completed state and cannot trigger a second stop or busy controls',async()=>{
+ const h=setup();const states=[];h.recorder.onState=state=>{if(state==='saved'){states.push(h.recorder.state);assert.equal(h.recorder.state,'done');assert.equal(h.recorder.stop(),h.recorder.stopPromise);}};
+ await h.recorder.start('FPV');await h.recorder.stop();assert.deepEqual(states,['done']);assert.equal(h.calls.filter(([c])=>c==='finish').length,1);
+});
+test('failed finalization releases busy state before notifying the UI',async()=>{
+ const h=setup({finishRecording:async()=>({saved:false,error:'disk failure'})});let stateAtError;
+ h.recorder.onState=state=>{if(state==='error')stateAtError=h.recorder.state;};await h.recorder.start('FPV');await h.recorder.stop();assert.equal(stateAtError,'done');assert.match(h.recorder.error.message,/disk failure/);
+});
+test('recording selection cancel and start failure notify only after busy state is cleared',async()=>{
+ for(const result of [{canceled:true},Error('permission')]){const h=setup({beginRecording:async()=>{if(result instanceof Error)throw result;return result;}});let observed;h.recorder.onState=state=>{if(['canceled','error'].includes(state))observed=h.recorder.state;};await h.recorder.start('FPV').catch(()=>{});assert.equal(observed,'done');}
+});
