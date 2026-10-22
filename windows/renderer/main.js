@@ -163,7 +163,7 @@ function dashboard(){
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
  </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
  <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
- <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
+ <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="renameRoom" class="minor" disabled>Переименовать</button><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  mountPowerSettings(serverInfo?.power);
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
@@ -228,6 +228,7 @@ function dashboard(){
  q('#gridColumns').value=String([0,1,2,3,4].includes(gridColumns)?gridColumns:0);
  q('#gridColumns').onchange=e=>{gridColumns=Number(e.target.value);wallLayout.setColumns(gridColumns);applyGridLayout();};
  q('#refresh').onclick=()=>refresh(false);
+ q('#renameRoom').onclick=async()=>{if(!active)return;const id=active,room=rooms.find(r=>r.id===id);const name=prompt('Новое название комнаты (до 80 символов)',room?.name||'');if(name===null||name.trim()===room?.name)return;if(!name.trim()||name.trim().length>80||/[\u0000-\u001f\u007f]/.test(name)){displayErr(Error('Введите название от 1 до 80 символов без управляющих символов'));return;}const button=q('#renameRoom');button.disabled=true;try{await window.streamControl.renameRoom(id,name.trim());await refresh(false);}catch(err){displayErr(err);}finally{if(button.isConnected)button.disabled=!active;}};
  q('#deleteRoom').onclick=async()=>{if(!active)return;const r=rooms.find(x=>x.id===active);if(!confirm(`Удалить комнату «${r?.name}»?`))return;
  try{const result=await window.streamControl.deleteRoom(active);active=null;await disconnect();await refresh(false);
    if(result?.warning)displayErr(new Error(result.warning));}catch(err){displayErr(err);}};
@@ -255,8 +256,8 @@ function paintRoomList(){
  q('#roomList').querySelectorAll('[data-room]').forEach(btn=>btn.onclick=()=>selectRoom(btn.dataset.room));
  q('#allControllers').classList.toggle('selected',wallMode);
  const panel=q('.keys-panel');if(panel)panel.hidden=wallMode;
- if(wallMode){q('#roomTitle').textContent='Все ФПВ-пульты';q('#newKey').disabled=true;q('#deleteRoom').disabled=true;q('#selfTest').disabled=true;q('#keys').textContent='';updateWallStatus();return;}
- const r=rooms.find(r=>r.id===active);q('#newKey').disabled=!r;q('#deleteRoom').disabled=!r;
+ if(wallMode){q('#roomTitle').textContent='Все ФПВ-пульты';q('#newKey').disabled=true;q('#renameRoom').disabled=true;q('#deleteRoom').disabled=true;q('#selfTest').disabled=true;q('#keys').textContent='';updateWallStatus();return;}
+ const r=rooms.find(r=>r.id===active);q('#newKey').disabled=!r;q('#renameRoom').disabled=!r;q('#deleteRoom').disabled=!r;
  q('#selfTest').disabled=!r;
  q('#roomTitle').textContent=r?.name||'Выберите комнату';q('#roomInfo').textContent=r?'Операторы в комнате — трансляция экрана':'Мониторинг операторов';
  if(r)paintKeys(r);else{q('#keys').innerHTML='<span class="muted">Ключей нет</span>';q('#content').innerHTML='<div class="empty">Выберите комнату слева</div>';}
@@ -284,7 +285,7 @@ async function pollPresence(){
 async function refresh(fallback=true){try{const data=await window.streamControl.rooms();rooms=data.rooms;
  const pending=q('#pendingRoomCleanup');if(pending)pending.textContent=data.pendingDeletedRooms?`Защита удалённых комнат (старые токены): ${data.pendingDeletedRooms}`:'';
  if(!rooms.some(r=>r.id===active)){active=!wallMode&&fallback&&rooms.length?rooms[0].id:null;}
- paintRoomList();if(wallMode){await wall.sync(rooms);applyGridLayout();updateWallStatus();}else if(active){await pollPresence();if(!session)await connectRoom(active);}}catch(err){displayErr(err);}}
+ paintRoomList();if(wallMode){await wall.sync(rooms);applyGridLayout();updateWallStatus();}else if(active){await pollPresence();if(!session)await connectRoom(active);applyGridLayout();}}catch(err){displayErr(err);}}
 async function selectRoom(id){if(!wallMode&&active===id&&session)return;if(!confirmViewSwitch(activeRecordings,message=>confirm(message)))return;await disconnect();wallMode=false;wallStates.clear();q('#wallRoomStates').hidden=true;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
 function clearTiles(){
  for(const entry of tiles.values()){void entry.recorder?.stop();entry.stopMonitor?.();entry.track.detach();entry.item.remove();}
@@ -303,6 +304,7 @@ function applyGridLayout(){
  grid.style.setProperty('--grid-columns',gridColumns?String(gridColumns):'0');
  if(layoutWarning){layoutWarning=false;recordingNotice('Настройки видеостены не удалось сохранить на диск. Изменения действуют до закрытия приложения.',true);}
  grid.classList.toggle('fixed-grid',gridColumns>0);
+ for(const entry of tiles.values())if(entry.showRoomName){const room=rooms.find(r=>r.id===entry.roomId);if(room){entry.label=room.name+' · '+entry.participantName;entry.nameNode.textContent=entry.label;entry.nameNode.title=entry.label;observedSources.set(`${entry.roomId}:${entry.identity}`,entry.label);}}
  const view=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name})),streamQuery,focusedTile);focusedTile=view.focusedId;const visible=new Set(view.visible);
  grid.classList.toggle('focused-grid',Boolean(focusedTile));
  const order=wallLayout.sorted([...new Set([...tiles.values()].map(t=>t.sourceKey))]);
@@ -403,7 +405,7 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  visual.append(video,warning,shortcutNumber);footer.append(n,badge,pauseButton,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
  grid.append(item);track.attach(video);
  const stableKey=sourceKey(String(roomId),p.identity);item.dataset.source=stableKey;wallLayout.remember([stableKey]);
- const entry={sourceKey:stableKey,item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,snapshotButton,video,label:n.textContent,snapshotPending:false,pauseButton,receivePaused:false,shortcutNumber};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
+ const entry={sourceKey:stableKey,nameNode:n,participantName:p.name||p.identity,identity:p.identity,showRoomName:Boolean(roomName),item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,snapshotButton,video,label:n.textContent,snapshotPending:false,pauseButton,receivePaused:false,shortcutNumber};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
  pauseButton.onclick=()=>{if(toggleReceive(entry)){entry.lastFrameState=null;applyReceiveState(entry);}};
  snapshotButton.onclick=()=>{
   const pending=saveTileSnapshot(entry);activeSnapshots.add(pending);void pending.then(()=>activeSnapshots.delete(pending),()=>activeSnapshots.delete(pending));

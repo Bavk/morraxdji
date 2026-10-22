@@ -56,6 +56,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('server:status',()=>({power:powerGuard.status(),running:true,mode:'lan',ips:[ip],vpn:{configured:false},operatorUrl:base}));
  ipcMain.handle('key:create',()=>({key:syntheticInvite}));
  ipcMain.handle('invite:save',(_,code)=>saveInvite(path.join(dir,'synthetic-invite.usc'),code));
+ ipcMain.handle('room:rename',(_,id,name)=>call(`/api/admin/rooms/${id}`,'PATCH',{name}));
  ipcMain.handle('room:list',()=>call('/api/admin/rooms'));
  ipcMain.handle('room:view',(_,id)=>call(`/api/admin/rooms/${id}/viewer`,'POST',{}));
  ipcMain.handle('room:presence',(_,id)=>call(`/api/admin/rooms/${id}/presence`));
@@ -156,6 +157,16 @@ app.whenReady().then(async()=>{
  assert.equal(await viewer.webContents.executeJavaScript('window.__switchPrompts'),1);
  assert.deepEqual([...recordingStore.sessions.keys()],protectedSessions);
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('#wallRoomStates').hidden"),false);
+ const renameSessions=[...recordingStore.sessions.keys()];
+ const renameTracks=await viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile video')].map(v=>v.srcObject.getVideoTracks()[0].id)");
+ await call(`/api/admin/rooms/${rooms[0].id}`,'PATCH',{name:'Пульт Север'});
+ await viewer.webContents.executeJavaScript("document.querySelector('#refresh').click()");
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelector('.tile .tile-footer>span').textContent.includes('Пульт Север')"),'live wall label refresh after rename');
+ assert.deepEqual([...recordingStore.sessions.keys()],renameSessions);
+ assert.deepEqual(await viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile video')].map(v=>v.srcObject.getVideoTracks()[0].id)"),renameTracks);
+ await searchStreams('север');assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile:not([hidden])').length"),1);
+ await call(`/api/admin/rooms/${rooms[0].id}`,'PATCH',{name:'Пульт A'});await viewer.webContents.executeJavaScript("document.querySelector('#clearStreamSearch').click();document.querySelector('#refresh').click()");
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelector('.tile .tile-footer>span').textContent.startsWith('Пульт A')"),'wall label restored after rename');
  const filteringSessions=[...recordingStore.sessions.keys()];const filteringChunks=new Map(recordingChunks);
  await searchStreams('нет такого пульта');
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile:not([hidden])').length"),0);
@@ -310,6 +321,11 @@ app.whenReady().then(async()=>{
  await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('#saveInvite')"),'invite dialog closed');
  await viewer.webContents.executeJavaScript("document.querySelector('.record-button').click()");
  await until(()=>recordingStore.sessions.size===1&&[...recordingStore.sessions.keys()].some(id=>(recordingChunks.get(id)||0)>=2),'recording before close');
+ const beforeRenameSession=[...recordingStore.sessions.keys()][0];
+ await viewer.webContents.executeJavaScript("window.prompt=()=> 'Пульт A переименован';document.querySelector('#renameRoom').click()");
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelector('#roomTitle').textContent==='Пульт A переименован'"),'rename selected room from UI');
+ assert.ok(recordingStore.sessions.has(beforeRenameSession));
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length"),1);
  const singleRecording=[...recordingStore.sessions.keys()][0];
  await viewer.webContents.executeJavaScript("window.confirm=()=>false;document.querySelector('#allControllers').click()");
  assert.ok(recordingStore.sessions.has(singleRecording));
@@ -328,5 +344,5 @@ app.whenReady().then(async()=>{
  assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===6,'final chunk saved before window closes');await verifyRecording(savedRecordings[5]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate');
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate, live room rename preserves tracks/recordings/search');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

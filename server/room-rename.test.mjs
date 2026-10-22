@@ -1,0 +1,22 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {createApiServer} from './server.mjs';
+test('room rename persists metadata, preserves IDs and operator access, and never calls media moderation',async t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'usc-rename-')),file=path.join(dir,'rooms.json');let mediaCalls=0;
+ const config={host:'127.0.0.1',port:0,dataPath:file,adminPassword:'synthetic-admin-password-long-enough',apiKey:'synthetic',apiSecret:'synthetic-livekit-secret-long-enough',wsUrl:'ws://127.0.0.1:7880',revocationReconcile:false,livekitControl:{deleteRoom:()=>mediaCalls++,removeParticipant:()=>mediaCalls++}};
+ let server=await createApiServer(config);t.after(async()=>{await new Promise(r=>server.close(r));fs.rmSync(dir,{recursive:true,force:true});});
+ const request=async(route,method='GET',body,auth=true)=>{const response=await fetch(`http://127.0.0.1:${server.address().port}${route}`,{method,headers:{'Content-Type':'application/json',...(auth?{Authorization:'Bearer '+config.adminPassword}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:response.status,data:await response.json()};};
+ const room=(await request('/api/admin/rooms','POST',{name:'Before'})).data.room;
+ const key=(await request(`/api/admin/rooms/${room.id}/keys`,'POST',{name:'Pilot'})).data;
+ const endpoint=`/api/admin/rooms/${room.id}`;
+ assert.equal((await request(endpoint,'PATCH',{name:'Forbidden'},false)).status,401);
+ for(const name of ['', ' '.repeat(3), 'x'.repeat(81), 'bad\u0000name', 123])assert.equal((await request(endpoint,'PATCH',{name})).status,400);
+ const result=await request(endpoint,'PATCH',{name:'  Группа Север  '});assert.equal(result.status,200);assert.equal(result.data.room.name,'Группа Север');assert.equal(result.data.room.id,room.id);assert.equal(result.data.room.keys[0].id,key.operator.id);assert.equal(result.data.room.keys[0].revoked,false);assert.equal(mediaCalls,0);
+ const session=await request('/api/operator/session','POST',{key:key.key},false);assert.equal(session.status,200);assert.equal(session.data.roomName,'Группа Север');
+ const token=JSON.parse(Buffer.from(session.data.token.split('.')[1],'base64url'));assert.equal(token.video.room,room.id);
+ const blockedTemp=`${file}.${process.pid}.tmp`;fs.mkdirSync(blockedTemp);
+ const failed=await request(endpoint,'PATCH',{name:'Must not persist'});assert.equal(failed.status,500);assert.equal(failed.data.error,'Server error');
+ assert.equal((await request('/api/admin/rooms')).data.rooms[0].name,'Группа Север');
+ assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).rooms[0].name,'Группа Север');
+ fs.rmdirSync(blockedTemp);
+ await new Promise(r=>server.close(r));server=await createApiServer(config);assert.equal((await request('/api/admin/rooms')).data.rooms[0].name,'Группа Север');
+ assert.equal((await request('/api/admin/rooms/room_'+'0'.repeat(20),'PATCH',{name:'Missing'})).status,404);
+});

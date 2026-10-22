@@ -275,6 +275,7 @@ ipcMain.handle('diagnostics:save',async()=>{
 ipcMain.handle('room:reconcile',()=>api('POST','/api/admin/reconcile-revoked',{}));
 ipcMain.handle('room:list',()=>api('GET','/api/admin/rooms'));
 ipcMain.handle('vpn:cleanup',()=>reconcileVpnPeers());
+ipcMain.handle('room:rename',(_,id,name)=>api('PATCH',`/api/admin/rooms/${encodeURIComponent(id)}`,{name}));
 ipcMain.handle('room:create',(_,name)=>api('POST','/api/admin/rooms',{name}));
 ipcMain.handle('room:delete',(_,id)=>deleteRoomThenCleanup({id,api,vpn:vpn(),
   cleanup:async()=>{if(peerCleanupInFlight)await peerCleanupInFlight.catch(()=>{});return reconcileVpnPeers();}}));

@@ -133,6 +133,14 @@ const server = http.createServer(async (req,res) => {
     const [,id,action,keyId] = roomMatch;
     const room = db.rooms.find(r => r.id === id);
     if (!room) return reply(res,404,{error:'Room not found'});
+    if (req.method === 'PATCH' && !action) {
+      const body=await readBody(req);
+      const name=typeof body.name==='string'?body.name.trim():'';
+      if(!name||name.length>80||/[\u0000-\u001f\u007f]/.test(name))return reply(res,400,{error:'Название комнаты: 1–80 символов, без управляющих символов'});
+      const previous=room.name;room.name=name;
+      try{persist();}catch(error){room.name=previous;throw error;}
+      return reply(res,200,{room:visibleRoom(room)});
+    }
     if (req.method === 'DELETE' && !action) {
       // Remove local access FIRST, then attempt LiveKit deletion. If LiveKit is
       // down, retain a persistent tombstone until a later reconciliation sweep.
@@ -197,7 +205,12 @@ const server = http.createServer(async (req,res) => {
       return reply(res,200,{wsUrl:desktopWsUrl,token:jwt({identity:uid('viewer'),name:'Windows Viewer',room:room.id,publisher:false})});
     }
     return reply(res,405,{error:'Method not allowed'});
-  } catch(e) { console.error(e.message); reply(res,e.code || 500,{error:e.code ? e.message : 'Server error'}); }
+  } catch(e) {
+    console.error(e.message);
+    // Filesystem codes such as EISDIR/ENOSPC are not HTTP status codes.
+    const status=Number.isInteger(e.code)&&e.code>=400&&e.code<=599?e.code:500;
+    reply(res,status,{error:status===500?'Server error':e.message});
+  }
 });
 const reconciler = mediaControl && config.revocationReconcile !== false
   ? startRevocationReconciler({getRooms:() => db.rooms,mediaControl,
