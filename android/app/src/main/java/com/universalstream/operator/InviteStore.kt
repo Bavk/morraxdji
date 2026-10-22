@@ -29,7 +29,7 @@ internal class InviteStore(context: Context) {
         val cipher=Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE,secret())
         val encoded=cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        preferences.edit().putString("key",Base64.encodeToString(encoded,Base64.NO_WRAP)).apply()
+        check(preferences.edit().putString("key",Base64.encodeToString(encoded,Base64.NO_WRAP)).commit()) { "Не удалось сохранить подключение" }
     }
     fun load(): String? {
         val stored=preferences.getString("key",null) ?: return null

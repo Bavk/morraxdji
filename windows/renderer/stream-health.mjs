@@ -27,7 +27,7 @@ export class StreamHealth {
    rttMs:stats.rttMs,width,height,ageMs};
  }
 }
-export function monitorStream({track,video,isActive=()=>true,onUpdate,intervalMs=1000,setTimer=setTimeout,clearTimer=clearTimeout,now=()=>performance.now()}){
+export function monitorStream({track,video,isActive=()=>true,onUpdate,getStaleAfterMs=()=>4000,intervalMs=1000,setTimer=setTimeout,clearTimer=clearTimeout,now=()=>performance.now()}){
  const health=new StreamHealth();let stopped=false,timer=null;
  async function tick(){
   if(stopped)return;
@@ -37,6 +37,7 @@ export function monitorStream({track,video,isActive=()=>true,onUpdate,intervalMs
   const quality=video.getVideoPlaybackQuality?.();
   // Hidden video elements may stop presenting frames while a recording still decodes.
   const frames=readVideoStats(report).decoded??finite(quality?.totalVideoFrames);
+  const threshold=getStaleAfterMs();health.staleAfterMs=[2000,4000,8000,15000].includes(threshold)?threshold:4000;
   onUpdate(health.sample({frames,width:video.videoWidth,height:video.videoHeight,report,active:isActive()},now()));
   if(!stopped)timer=setTimer(tick,intervalMs);
  }

@@ -85,3 +85,7 @@
 .tile-duration{padding:0 12px 10px;color:#a8bad4;background:#192439;font-size:11px;font-variant-numeric:tabular-nums}
 
 .archive-player-actions{display:flex;gap:8px;flex-wrap:wrap}.archive-marker{padding:2px 5px;color:#a4caff;background:#243d61;font-size:12px;text-decoration:underline;font-variant-numeric:tabular-nums}
+
+.access-rooms{display:grid;gap:12px;max-height:45vh;overflow:auto}.access-rooms input{width:auto}.key-row{flex-wrap:wrap}
+
+.hide-stream-metrics .tile-metrics{display:none}#viewerSettings input[type="checkbox"]{width:auto}#viewerSettings select{background:#101a2b;color:#e7eefb;padding:8px;border:1px solid #456184;border-radius:6px}

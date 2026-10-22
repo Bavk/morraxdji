@@ -37,3 +37,7 @@ test('late audio activation cannot re-enable a stopped session',async()=>{
 test('suspended audio context reports failure instead of pretending to signal',async()=>{
  const fake=audio();fake.context.state='suspended';const tone=new AlertTone(()=>fake.context);await assert.rejects(tone.ready());assert.throws(()=>tone.play());tone.stop();
 });
+
+test('configured alert cooldown survives enable and coalesces signals for the selected interval',()=>{
+ let time=0,plays=0;const alerts=new StreamAlerts({play:()=>plays++,now:()=>time});alerts.cooldownMs=30000;alerts.enable(true);alerts.observe('a',live);alerts.observe('a',stale);time=15000;alerts.observe('a',live);alerts.observe('a',stale);assert.equal(plays,1);time=30000;alerts.observe('a',live);alerts.observe('a',stale);assert.equal(plays,2);
+});

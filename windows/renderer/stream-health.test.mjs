@@ -31,3 +31,8 @@ test('hidden recording health uses decoded frames when presentation counter does
  let decoded=10,time=0,tick;const samples=[];const stop=monitorStream({track:{getRTCStatsReport:async()=>new Map([['video',{type:'inbound-rtp',kind:'video',framesDecoded:decoded}]])},video:{getVideoPlaybackQuality:()=>({totalVideoFrames:1})},onUpdate:s=>samples.push(s),now:()=>time,setTimer:callback=>{tick=callback;return 1;},clearTimer:()=>{}});
  await new Promise(resolve=>setTimeout(resolve,0));decoded=60;time=5000;await tick();stop();assert.equal(samples.at(-1).state,'live');assert.equal(samples.at(-1).fps,10);
 });
+
+test('monitor applies changed stall threshold to an existing stream without reconnecting',async()=>{
+ let time=0,threshold=4000,tick;const samples=[];const stop=monitorStream({track:{},video:{videoWidth:640,videoHeight:360,getVideoPlaybackQuality:()=>({totalVideoFrames:1})},getStaleAfterMs:()=>threshold,onUpdate:s=>samples.push(s),now:()=>time,setTimer:callback=>{tick=callback;return 1},clearTimer:()=>{}});
+ await new Promise(resolve=>setTimeout(resolve,0));threshold=8000;time=5000;await tick();assert.equal(samples.at(-1).state,'live');time=8000;await tick();assert.equal(samples.at(-1).state,'stale');stop();
+});

@@ -116,6 +116,25 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Restore persistent Android test signing key
+        env:
+          USC_DEBUG_KEYSTORE_B64: ${{ secrets.USC_DEBUG_KEYSTORE_B64 }}
+        shell: bash
+        run: |
+          python3 - <<'PYKEY'
+          import os, base64, pathlib
+          value = os.environ.get('USC_DEBUG_KEYSTORE_B64', '').strip()
+          if not value:
+              if os.environ.get('GITHUB_EVENT_NAME') != 'pull_request':
+                  raise SystemExit('Configure USC_DEBUG_KEYSTORE_B64 to preserve app updates')
+              print('Pull request: using ephemeral test signing')
+          else:
+              target = pathlib.Path.home() / '.android' / 'debug.keystore'
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(base64.b64decode(value, validate=True))
+              target.chmod(0o600)
+              print('Persistent test signing restored')
+          PYKEY
       - name: Compile debug APK
         working-directory: android
         run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug

@@ -294,6 +294,7 @@ ipcMain.handle('room:rename',(_,id,name)=>api('PATCH',`/api/admin/rooms/${encode
 ipcMain.handle('room:create',(_,name)=>api('POST','/api/admin/rooms',{name}));
 ipcMain.handle('room:delete',(_,id)=>deleteRoomThenCleanup({id,api,vpn:vpn(),
   cleanup:async()=>{if(peerCleanupInFlight)await peerCleanupInFlight.catch(()=>{});return reconcileVpnPeers();}}));
+ipcMain.handle('operator:rooms',(_,keyId,roomIds)=>api('PATCH',`/api/admin/operators/${encodeURIComponent(keyId)}/rooms`,{roomIds}));
 ipcMain.handle('key:rename',(_,id,keyId,name)=>api('PATCH',`/api/admin/rooms/${encodeURIComponent(id)}/keys/${encodeURIComponent(keyId)}`,{name}));
 ipcMain.handle('key:create',(_,id,name)=>{
   const create=()=>api('POST',`/api/admin/rooms/${encodeURIComponent(id)}/keys`,{name});

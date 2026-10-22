@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('streamControl',Object.freeze({
   createRoom:(name)=>call('room:create',name),
   deleteRoom:(id)=>call('room:delete',id),
   renameOperator:(id,keyId,name)=>call('key:rename',id,keyId,name),
+  assignOperatorRooms:(keyId,roomIds)=>call('operator:rooms',keyId,roomIds),
   createKey:(id,name)=>call('key:create',id,name),
   revokeKey:(id,keyId)=>call('key:revoke',id,keyId),
   viewRoom:(id)=>call('room:view',id),

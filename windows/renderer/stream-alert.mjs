@@ -1,6 +1,6 @@
 // A signal means no new decoded frames, not proof of network failure.
 export class StreamAlerts {
- constructor({play,now=()=>performance.now(),onError=()=>{}}){Object.assign(this,{play,now,onError});this.enabled=false;this.sources=new Map();this.last=-Infinity;}
+ constructor({play,now=()=>performance.now(),onError=()=>{}}){Object.assign(this,{play,now,onError});this.enabled=false;this.sources=new Map();this.last=-Infinity;this.cooldownMs=10000;}
  enable(value){this.enabled=!!value;this.sources.clear();this.last=-Infinity;}
  forget(id){this.sources.delete(id);}
  clear(){this.sources.clear();}
@@ -10,7 +10,7 @@ export class StreamAlerts {
   if(sample.state==='live'){if(sample.fps>0)this.sources.set(id,true);return false;}
   this.sources.delete(id);
   if(sample.state!=='stale'||!previous)return false;
-  const time=this.now();if(time-this.last<10000)return false;
+  const time=this.now();if(time-this.last<this.cooldownMs)return false;
   this.last=time;
   try{this.play();return true;}catch{this.enable(false);this.onError();return false;}
  }

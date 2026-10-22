@@ -1,3 +1,5 @@
+import {loadViewerSettings,showViewerSettings} from './viewer-settings.mjs';
+import {showOperatorAccess} from './operator-access.mjs';
 import {askName} from './name-dialog.mjs';
 import {StreamSessionClock,formatSessionDuration} from './stream-session-clock.mjs';
 import {captureWallSnapshot,wallSnapshotSources} from './wall-snapshot.mjs';
@@ -21,6 +23,8 @@ import {monitorStream,formatHealth} from './stream-health.mjs';
 import {MultiRoomViewer} from './multi-room-viewer.mjs';
 import {ViewerReconnect} from './viewer-reconnect.mjs';
 import {LoopbackTest,createTestPattern} from './loopback-test.mjs';
+let viewerSettings=loadViewerSettings(localStorage);
+document.body.classList.toggle('hide-stream-metrics',!viewerSettings.showMetrics);
 const el=document.querySelector('#app');
 let rooms=[];let active=null;let session=null;let tiles=new Map();let serverInfo=null;
 let presence=new Map();let presenceTimer=null;let presenceRequest=0;
@@ -29,6 +33,7 @@ const recordingMetadata=new Map();let recordingSerial=0;
 const activeSnapshots=new Set();let wallSnapshotPending=false;
 const alertTone=new AlertTone();
 const streamAlerts=new StreamAlerts({play:()=>alertTone.play(),onError:()=>{const checkbox=q('#streamSound');if(checkbox)checkbox.checked=false;const button=q('#testStreamSound');if(button)button.disabled=true;alertTone.stop();recordingNotice('Звуковой сигнал недоступен. Проверьте устройство вывода и включите сигнал снова.',true);}});
+streamAlerts.cooldownMs=viewerSettings.alertSeconds*1000;
 const pendingEvents=new Set();
 const observedSources=new Map(),journalRoomStates=new Map();
 let eventLogWarning=false;
@@ -97,7 +102,7 @@ async function startScreen(){
  <label>Публичный ключ WireGuard ретранслятора</label><input id="relayPub" required placeholder="Ключ Base64" />
  <label>Токен управления ретранслятором</label><input id="relayToken" type="password" required autocomplete="off" />
  <button class="minor" type="submit">Сохранить VPN и создать конфигурацию Windows</button></form>`}</details>
- <div id="powerSettings"></div><button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor" type="button">▤ Архив записей</button>
+ <div id="powerSettings"></div><button id="viewerSettingsButton" class="minor" type="button">Настройки просмотра</button><button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor" type="button">▤ Архив записей</button>
  <button id="runDiagnostics" class="minor" type="button">🔎 Проверить готовность Windows</button>
  <button id="saveDiagnostics" class="minor" type="button">📄 Сохранить диагностику без ключей</button>
  <button id="recoverServer" class="minor" type="button" hidden>♻ Завершить оставшийся LiveKit и восстановить запуск</button><p id="diagResult" class="small-note" aria-live="polite"></p><p class="small-note">Видеосервер LiveKit встроен и запускается автоматически без Docker. VPN требует однократной настройки Linux-ретранслятора и WireGuard на Windows; Android VPN встроен в APK.</p>
@@ -110,6 +115,7 @@ async function startScreen(){
    try{const d=await window.streamControl.activateVpn();q('#diagResult').textContent=d.vpnInterfaceUp?'VPN включён — теперь можно запускать сервер.':'Команда выполнена, но VPN-адрес ещё не появился. Проверьте WireGuard.';}
    catch(err){showError(err);}finally{activate.disabled=false;activate.textContent='⚡ Включить VPN на Windows';}
  };
+ q('#viewerSettingsButton').onclick=()=>showViewerSettings({settings:viewerSettings,storage:localStorage,onChange:value=>{viewerSettings=value;streamAlerts.cooldownMs=value.alertSeconds*1000;document.body.classList.toggle('hide-stream-metrics',!value.showMetrics);}});
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#runDiagnostics').onclick=async()=>{
@@ -161,7 +167,7 @@ function dashboard(){
  presenceTimer=setInterval(()=>{if(active)pollPresence();},8000);
  el.innerHTML=`<div class="layout"><aside class="sidebar"><div class="brand">◉ UNIVERSAL STREAM CONTROL</div><div class="sectionlabel">КОМНАТЫ</div>
  <button id="allControllers" class="minor wall-button">▦ Все пульты</button><div id="roomList" class="room-list"></div><button id="addRoom" class="minor">+ Создать комнату</button>
- <div class="sidebar-footer"><div id="powerSettings"></div><button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor">▤ Архив записей</button><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
+ <div class="sidebar-footer"><div id="powerSettings"></div><button id="viewerSettingsButton" class="minor" type="button">Настройки просмотра</button><button id="openEvents" class="minor" type="button">Журнал событий</button><button id="openArchive" class="minor">▤ Архив записей</button><div class="server-live">● СЕРВЕР ЗАПУЩЕН</div><div id="modeInfo"></div>
  <div id="endpoint" class="endpoint"></div><div id="pendingRoomCleanup" class="muted" role="status"></div><button id="copyUrl" class="minor">Копировать адрес</button>
  <button id="reconcileRevoked" class="minor">Проверить отключения операторов</button>
  <button id="saveDashboardDiagnostics" class="minor">📄 Сохранить диагностику</button>
@@ -171,9 +177,10 @@ function dashboard(){
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
  </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallSnapshot" class="minor" type="button" disabled title="Сохранить видимые потоки, названия и состояния в один PNG. До 16 пультов; кадры источников не синхронизированы.">Снимок стены</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
- <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><label class="favorites-filter"><input id="favoritesOnly" type="checkbox"> Только избранные</label><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><label class="favorites-filter" title="Один короткий сигнал при отсутствии новых кадров около 4 секунд. Только после работающего видео; интервал между сигналами 10 секунд. Включается на текущий сеанс."><input id="streamSound" type="checkbox"> Сигнал зависания</label><button id="testStreamSound" class="minor" type="button" disabled>Проверить звук</button><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
+ <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><label class="favorites-filter"><input id="favoritesOnly" type="checkbox"> Только избранные</label><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><label class="favorites-filter" title="Один короткий сигнал при отсутствии новых кадров согласно настройкам просмотра. Только после работающего видео; интервал задаётся в настройках. Включается на текущий сеанс."><input id="streamSound" type="checkbox"> Сигнал зависания</label><button id="testStreamSound" class="minor" type="button" disabled>Проверить звук</button><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="renameRoom" class="minor" disabled>Переименовать</button><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  mountPowerSettings(serverInfo?.power);
+ q('#viewerSettingsButton').onclick=()=>showViewerSettings({settings:viewerSettings,storage:localStorage,onChange:value=>{viewerSettings=value;streamAlerts.cooldownMs=value.alertSeconds*1000;document.body.classList.toggle('hide-stream-metrics',!value.showMetrics);}});
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#activeRecordingsButton').onclick=()=>showActiveRecordings({getRows:activeRecordingRows,onReveal:revealActiveRecording});
@@ -284,7 +291,9 @@ function paintRoomList(){
 }
 function paintKeys(r){
  q('#keys').innerHTML=r.keys.length?r.keys.map(k=>{const state=presence.get(k.id);const stateName=k.revoked?'Отозван':state?.streaming?'● Транслирует':state?.online?'● Подключён':'○ Не в сети';const cls=k.revoked?'muted':state?.streaming?'streaming':state?.online?'online':'muted';return `<div class="key-row"><span>${escapeHtml(k.name)}</span><span class="${cls}">${stateName}</span>
- ${k.revoked?'':`<button class="minor" data-rename-operator="${k.id}">Переименовать</button><button class="danger" data-revoke="${k.id}">Отозвать</button>`}</div>`;}).join(''):'<span class="muted">Нажмите «Ключ оператора» для подключения первого пульта</span>';
+ ${k.revoked?'':`<button class="minor" data-access-operator="${k.id}">Комнаты: ${(k.allowedRoomIds||[r.id]).length}</button><button class="minor" data-rename-operator="${k.id}">Переименовать</button><button class="danger" data-revoke="${k.id}">Отозвать</button>`}</div>`;}).join(''):'<span class="muted">Нажмите «Ключ оператора» для подключения первого пульта</span>';
+ if(r.assignedOperators?.length){const heading=document.createElement('p');heading.className='muted';heading.textContent='Также имеют доступ (управляются в исходной комнате):';q('#keys').append(heading);for(const operator of r.assignedOperators){const item=document.createElement('p');item.textContent=operator.name;q('#keys').append(item);}}
+ q('#keys').querySelectorAll('[data-access-operator]').forEach(button=>button.onclick=()=>{const operator=r.keys.find(key=>key.id===button.dataset.accessOperator);showOperatorAccess({api:window.streamControl,operator,homeRoomId:r.id,rooms,onSaved:async result=>{await refresh(false);if(result.warning)displayErr(Error(result.warning));}});});
  q('#keys').querySelectorAll('[data-rename-operator]').forEach(button=>button.onclick=async()=>{const id=button.dataset.renameOperator,operator=r.keys.find(k=>k.id===id);const name=await askName({title:'Новое имя пульта',value:operator?.name||'',maxLength:60});if(name===null||name.trim()===operator?.name)return;if(!name.trim()||name.trim().length>60||/[\u0000-\u001f\u007f]/.test(name)){displayErr(Error('Введите имя от 1 до 60 символов без управляющих символов'));return;}button.disabled=true;try{await window.streamControl.renameOperator(r.id,id,name.trim());await refresh(false);}catch(err){displayErr(err);}finally{if(button.isConnected)button.disabled=false;}});
  q('#keys').querySelectorAll('[data-revoke]').forEach(btn=>btn.onclick=async()=>{if(!confirm('Отозвать этот ключ?'))return;
  try{const result=await window.streamControl.revokeKey(r.id,btn.dataset.revoke);await refresh(false);if(result?.warning)displayErr(new Error(result.warning));}catch(err){displayErr(err);}});
@@ -299,7 +308,7 @@ async function pollPresence(){
   const r=rooms.find(r=>r.id===roomId);
   const live=response.operators.filter(o=>o.streaming).length;
   const online=response.operators.filter(o=>o.online).length;
-  const summary=q('#presenceSummary');if(summary)summary.textContent=`В эфире: ${live}   ·   Подключено: ${online}   ·   Всего ключей: ${r?.keys.filter(k=>!k.revoked).length||0}`;
+  const summary=q('#presenceSummary');if(summary)summary.textContent=`В эфире: ${live}   ·   Подключено: ${online}   ·   Операторов с доступом: ${response.operators.filter(o=>!o.revoked).length}`;
   if(r)paintKeys(r);
  }catch(err){const summary=q('#presenceSummary');if(summary)summary.textContent='Не удалось получить статусы операторов (проверьте LiveKit)';}
 }
@@ -455,7 +464,7 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
   }});entry.recorder=recorder;recordingMetadata.set(recorder,{id:String(++recordingSerial),label:n.textContent,tileId:id});activeRecordings.add(recorder);
   await recorder.start(n.textContent).catch(()=>{});
  };
- entry.stopMonitor=monitorStream({track,video,isActive:()=>!track.isMuted&&receiveEnabled({paused:entry.receivePaused,hidden:item.hidden,recordingState:entry.recorder?.state}),onUpdate:sample=>{
+ entry.stopMonitor=monitorStream({track,video,getStaleAfterMs:()=>viewerSettings.staleSeconds*1000,isActive:()=>!track.isMuted&&receiveEnabled({paused:entry.receivePaused,hidden:item.hidden,recordingState:entry.recorder?.state}),onUpdate:sample=>{
   if(tiles.get(id)!==entry)return;const transition=frameTransition(entry.lastFrameState,sample.state);if(transition)logEvent(transition,entry.label);if(['live','stale'].includes(sample.state))entry.lastFrameState=sample.state;entry.health=sample;streamAlerts.observe(id,sample);entry.sampleAt=performance.now();renderEntryHealth(entry);updateStreamSummary();if(wallMode)updateWallStatus();
  }});if(p.identity===videoTest.identity){
   if(typeof video.requestVideoFrameCallback==='function')video.requestVideoFrameCallback(()=>videoTest.onVideoFrame(p.identity));

@@ -58,6 +58,21 @@ if (!Array.isArray(db.rooms)) throw Error('Bad data file: expected rooms[]');
 if (db.pendingRoomDeletes === undefined) db.pendingRoomDeletes=[]; // v0.11 migration
 if (!Array.isArray(db.pendingRoomDeletes) || db.pendingRoomDeletes.some(item=>!item || !/^room_[a-f0-9]{20}$/.test(item.id) || !Number.isSafeInteger(item.expireAt) || item.expireAt <= 0))
   throw Error('Bad data file: invalid pendingRoomDeletes');
+if(db.accessRevocations===undefined)db.accessRevocations=[];
+if(!Array.isArray(db.accessRevocations))throw Error('Invalid access revocations');
+const accessIds=(home,key)=>Array.isArray(key.allowedRoomIds)?key.allowedRoomIds:[home.id];
+const allOperators=()=>db.rooms.flatMap(home=>home.keys.map(key=>({home,key})));
+const allowedRooms=(home,key)=>db.rooms.filter(room=>accessIds(home,key).includes(room.id));
+function enforcementRooms(){
+ const operators=allOperators(),now=Date.now();
+ return db.rooms.map(room=>({...room,keys:[...operators.map(({home,key})=>({...key,revoked:!!key.revoked||!accessIds(home,key).includes(room.id)})),...db.accessRevocations.filter(item=>item.roomId===room.id&&item.expireAt>now).map(item=>({id:item.keyId,revoked:true}))]}));
+}
+function holdAccessRevocation(roomId,keyId){db.accessRevocations=db.accessRevocations.filter(item=>item.expireAt>Date.now()&&!(item.roomId===roomId&&item.keyId===keyId));db.accessRevocations.push({roomId,keyId,expireAt:Date.now()+330000});}
+async function kickFromRooms(keyId,roomIds){
+ let mediaDisconnected=true;
+ if(mediaControl)for(const roomId of roomIds){try{await mediaControl.removeParticipant(roomId,'operator_'+keyId);}catch{mediaDisconnected=false;}}
+ return mediaDisconnected;
+}
 function persist() {
   fs.mkdirSync(path.dirname(dataPath),{recursive:true});
   const temp = `${dataPath}.${process.pid}.tmp`;
@@ -81,7 +96,7 @@ async function readBody(req) {
   try { return body ? JSON.parse(body) : {}; } catch { throw Object.assign(Error('Invalid JSON'),{code:400}); }
 }
 function visibleRoom(room) {
-  return { id:room.id, name:room.name, keys:room.keys.map(k => ({ id:k.id,name:k.name,createdAt:k.createdAt,revoked:!!k.revoked })) };
+  return { id:room.id, name:room.name, assignedOperators:allOperators().filter(({home,key})=>home.id!==room.id&&!key.revoked&&accessIds(home,key).includes(room.id)).map(({home,key})=>({id:key.id,name:key.name,homeRoomId:home.id})), keys:room.keys.map(k => ({ id:k.id,name:k.name,createdAt:k.createdAt,revoked:!!k.revoked,allowedRoomIds:allowedRooms(room,k).map(r=>r.id) })) };
 }
 function admin(req) {
   // Management endpoints are never available from other computers in this prototype.
@@ -94,7 +109,7 @@ const server = http.createServer(async (req,res) => {
   try {
     const pathname = new URL(req.url,'http://localhost').pathname;
     if (req.method === 'GET' && pathname === '/health') return reply(res,200,{ok:true});
-    if (req.method === 'POST' && pathname === '/api/operator/session') {
+    if (req.method === 'POST' && ['/api/operator/session','/api/operator/rooms'].includes(pathname)) {
       if(operatorAccess==='vpn-only' && !isProvisionedVpnAddress(req.socket.remoteAddress))
         return reply(res,403,{error:'Operator access requires the configured VPN tunnel'});
       const body = await readBody(req);
@@ -106,8 +121,12 @@ const server = http.createServer(async (req,res) => {
         if (operator) {
           if(operatorAccess==='vpn-only' && !vpnPeerMatchesOperator(req.socket.remoteAddress,operator.id,config.operatorVpnAddressForId))
             return reply(res,403,{error:'This key does not belong to the connected VPN device'});
-          return reply(res,200,{wsUrl,roomName:room.name,operatorName:operator.name,
-          token:jwt({identity:`operator_${operator.id}`,name:operator.name,room:room.id,publisher:true})});
+          const available=allowedRooms(room,operator);
+          if(pathname==='/api/operator/rooms')return reply(res,200,{rooms:available.map(r=>({id:r.id,name:r.name})),operatorName:operator.name});
+          const target=body.roomId===undefined?available[0]:available.find(r=>r.id===body.roomId);
+          if(!target)return reply(res,403,{error:'Нет доступа к выбранной комнате'});
+          return reply(res,200,{wsUrl,roomId:target.id,roomName:target.name,operatorName:operator.name,
+          token:jwt({identity:`operator_${operator.id}`,name:operator.name,room:target.id,publisher:true})});
         }
       }
       return reply(res,401,{error:'Invalid or revoked key'});
@@ -116,7 +135,7 @@ const server = http.createServer(async (req,res) => {
     if (!admin(req)) return reply(res,401,{error:'Unauthorized'});
     if (req.method === 'POST' && pathname === '/api/admin/reconcile-revoked') {
       if (!mediaControl) return reply(res,503,{error:'LiveKit moderation is not enabled'});
-      const revoke=await reconcileRevokedOperators(db.rooms,mediaControl);
+      const revoke=await reconcileRevokedOperators(enforcementRooms(),mediaControl);
       const deleted=await reconcilePendingRoomDeletions(db.pendingRoomDeletes,mediaControl,acknowledgeDeletedRoom);
       return reply(res,200,{...revoke,...deleted});
     }
@@ -127,6 +146,21 @@ const server = http.createServer(async (req,res) => {
       if (!name || name.length > 80) return reply(res,400,{error:'Room name must be 1..80 chars'});
       const room = { id:uid('room'),name,keys:[] };
       db.rooms.push(room); persist(); return reply(res,201,{room:visibleRoom(room)});
+    }
+    const accessMatch=pathname.match(/^\/api\/admin\/operators\/(key_[a-f0-9]{20})\/rooms$/);
+    if(req.method==='PATCH'&&accessMatch){
+      const found=allOperators().find(({key})=>key.id===accessMatch[1]);if(!found)return reply(res,404,{error:'Оператор не найден'});
+      if(found.key.revoked)return reply(res,409,{error:'Ключ отозван'});
+      const body=await readBody(req),ids=body.roomIds;
+      if(!Array.isArray(ids)||!ids.length||ids.length>100||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!db.rooms.some(room=>room.id===id)))return reply(res,400,{error:'Выберите от 1 до 100 существующих комнат без повторений'});
+      const previous=accessIds(found.home,found.key),removed=previous.filter(id=>!ids.includes(id));
+      const old=found.key.allowedRoomIds,oldRevocations=[...db.accessRevocations];found.key.allowedRoomIds=[...ids];
+      for(const id of removed)holdAccessRevocation(id,found.key.id);
+      // A re-grant makes the operator legitimate in that room again.
+      db.accessRevocations=db.accessRevocations.filter(item=>item.keyId!==found.key.id||!ids.includes(item.roomId));
+      try{persist();}catch(error){if(old===undefined)delete found.key.allowedRoomIds;else found.key.allowedRoomIds=old;db.accessRevocations=oldRevocations;throw error;}
+      const mediaDisconnected=await kickFromRooms(found.key.id,removed);
+      return reply(res,200,{ok:true,roomIds:ids,mediaDisconnected,...(!mediaDisconnected?{warning:'Доступ изменён. Отключение старых сеансов будет повторено автоматически.'}:{})});
     }
     const roomMatch = pathname.match(/^\/api\/admin\/rooms\/(room_[a-f0-9]{20})(?:\/(keys|viewer|presence|selftest))?(?:\/(key_[a-f0-9]{20}))?$/);
     if (!roomMatch) return reply(res,404,{error:'Not found'});
@@ -146,7 +180,10 @@ const server = http.createServer(async (req,res) => {
       // down, retain a persistent tombstone until a later reconciliation sweep.
       if (mediaControl && !db.pendingRoomDeletes.some(item=>item.id===id))
         db.pendingRoomDeletes.push({id,expireAt:Date.now()+DELETED_ROOM_GUARD_MS});
+      const inherited=room.keys.flatMap(key=>allowedRooms(room,key).filter(target=>target.id!==id).map(target=>({roomId:target.id,keyId:key.id})));
+      for(const item of inherited)holdAccessRevocation(item.roomId,item.keyId);
       db.rooms = db.rooms.filter(r => r.id !== id); persist();
+      for(const item of inherited)await kickFromRooms(item.keyId,[item.roomId]);
       let mediaDisconnected=!mediaControl;
       if (mediaControl) {
         try {await mediaControl.deleteRoom(id);mediaDisconnected=true;}
@@ -159,7 +196,7 @@ const server = http.createServer(async (req,res) => {
       if(!mediaControl) return reply(res,503,{error:'LiveKit management is not enabled'});
       const connected=await mediaControl.listParticipants(id);
       const byIdentity=new Map(connected.map(p=>[p.identity,p]));
-      const operators=room.keys.map(k=>{
+      const operators=allOperators().filter(({home,key})=>accessIds(home,key).includes(id)).map(({key:k})=>{
         const p=byIdentity.get(`operator_${k.id}`);
         return {id:k.id,online:!!p && !k.revoked,streaming:!!p && !k.revoked && Array.isArray(p.tracks) && p.tracks.some(t=>
           (t.source===3 || t.source==='SCREEN_SHARE') && !t.muted),
@@ -191,16 +228,7 @@ const server = http.createServer(async (req,res) => {
       if (!k) return reply(res,404,{error:'Key not found'});
       // Persist revocation first, then kick the connected participant.
       k.revoked = true; persist();
-      let mediaDisconnected=true;
-      if(mediaControl){
-        try { await mediaControl.removeParticipant(id,`operator_${k.id}`); }
-        catch(e){
-          // Never turn a persisted local revocation into HTTP 500: Windows still
-          // needs to remove this operator's WireGuard peer on the relay.
-          mediaDisconnected=false;
-          console.error('LiveKit participant kick pending:',e.message);
-        }
-      }
+      const mediaDisconnected=await kickFromRooms(k.id,db.rooms.map(r=>r.id));
       return reply(res,200,{ok:true,mediaDisconnected,
         ...(mediaDisconnected?{}:{warning:'Ключ заблокирован, но активный видеосеанс не удалось принудительно завершить. Проверьте LiveKit.'})});
     }
@@ -223,7 +251,7 @@ const server = http.createServer(async (req,res) => {
   }
 });
 const reconciler = mediaControl && config.revocationReconcile !== false
-  ? startRevocationReconciler({getRooms:() => db.rooms,mediaControl,
+  ? startRevocationReconciler({getRooms:() => enforcementRooms(),mediaControl,
       getDeletedRooms:()=>db.pendingRoomDeletes,ackDeletedRoom:acknowledgeDeletedRoom,
       periodMs:config.revocationPeriodMs ?? 30000}) : null;
 if (reconciler) server.once('close', () => reconciler.stop());

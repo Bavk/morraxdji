@@ -28,6 +28,9 @@ import io.livekit.android.room.track.VideoCaptureParameter
 import io.livekit.android.room.track.VideoEncoding
 import io.livekit.android.room.participant.VideoTrackPublishDefaults
 import io.livekit.android.room.track.screencapture.ScreenCaptureParams
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import org.json.JSONArray
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -238,6 +241,7 @@ class MainActivity:ComponentActivity() {
                 if(!BuildConfig.DEBUG || !api.startsWith("http://")){
                     start.isEnabled=true;stop.isEnabled=false;setStatus("Вставьте код USCV1 из Windows-приложения")
                 }else {
+                    currentCode=code
                     getSharedPreferences("operator",MODE_PRIVATE).edit().putString("api_url",api).apply()
                     connectStream(api,code,attempt)
                 }
@@ -276,10 +280,20 @@ class MainActivity:ComponentActivity() {
         lifecycleScope.launch {
             var current:Room?=null
             try {
+                val available=withContext(Dispatchers.IO){
+                    var last:Exception?=null
+                    repeat(5){index->try{return@withContext obtainRooms(api,operatorKey).getJSONArray("rooms")}catch(e:Exception){if(e is SessionHttpException&&e.status in 400..499)throw e;last=e;if(index<4)delay((1000L shl index).coerceAtMost(8000L))}}
+                    throw(last?:IOException("Сервер недоступен"))
+                }
+                if(attempt!=sessionEpoch)return@launch
+                if(available.length()==0)error("Нет доступных комнат. Обратитесь к администратору Windows")
+                val chosen=if(available.length()==1)available.getJSONObject(0).getString("id") else chooseRoom(available)
+                if(chosen==null){stopSession();return@launch}
+                if(attempt!=sessionEpoch)return@launch
                 val session=withContext(Dispatchers.IO){
                     var last:Exception?=null
                     repeat(5){index->
-                        try{return@withContext obtainSession(api,operatorKey)}catch(e:Exception){
+                        try{return@withContext obtainSession(api,operatorKey,chosen)}catch(e:Exception){
                             // A revoked/malformed key is permanent: do not retry authorization.
                             if(e is SessionHttpException && e.status in 400..499) throw e
                             last=e
@@ -362,16 +376,31 @@ class MainActivity:ComponentActivity() {
             stopping=false
         }
     }
-    private fun obtainSession(api:String,operatorKey:String):JSONObject {
-        val connection=URL("$api/api/operator/session").openConnection() as HttpURLConnection
+    private suspend fun chooseRoom(rooms:JSONArray):String?=suspendCancellableCoroutine { continuation ->
+        val names=Array(rooms.length()){rooms.getJSONObject(it).getString("name")}
+        val dialog=AlertDialog.Builder(this).setTitle("Выберите комнату трансляции")
+            .setItems(names){_,index->if(continuation.isActive)continuation.resume(rooms.getJSONObject(index).getString("id"))}
+            .setNegativeButton("Отмена"){_,_->if(continuation.isActive)continuation.resume(null)}
+            .setOnCancelListener{if(continuation.isActive)continuation.resume(null)}.create()
+        continuation.invokeOnCancellation{runOnUiThread{dialog.dismiss()}}
+        dialog.show()
+    }
+    private fun obtainRooms(api:String,key:String):JSONObject {
+        return try{requestOperator(api,"/api/operator/rooms",JSONObject().put("key",key))}catch(e:SessionHttpException){
+            if(e.status!=404)throw e
+            JSONObject().put("rooms",JSONArray().put(JSONObject().put("id","").put("name","Комната ключа")))
+        }
+    }
+    private fun obtainSession(api:String,operatorKey:String,roomId:String):JSONObject=requestOperator(api,"/api/operator/session",JSONObject().put("key",operatorKey).apply{if(roomId.isNotEmpty())put("roomId",roomId)})
+    private fun requestOperator(api:String,endpoint:String,payload:JSONObject):JSONObject {
+        val connection=URL("$api$endpoint").openConnection() as HttpURLConnection
         try {
             connection.requestMethod="POST"
             connection.connectTimeout=3500
             connection.readTimeout=7000
             connection.setRequestProperty("Content-Type","application/json; charset=utf-8")
             connection.doOutput=true
-            val payload=JSONObject().put("key",operatorKey).toString()
-            connection.outputStream.use{it.write(payload.toByteArray(Charsets.UTF_8))}
+            connection.outputStream.use{it.write(payload.toString().toByteArray(Charsets.UTF_8))}
             val code=connection.responseCode
             val body=(if(code in 200..299)connection.inputStream else connection.errorStream)
                 ?.bufferedReader(Charsets.UTF_8)?.use{it.readText()}.orEmpty()
