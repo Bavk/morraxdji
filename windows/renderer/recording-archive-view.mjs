@@ -65,7 +65,12 @@ export async function showRecordingArchive(api){
    forget.onclick=async()=>{if(!confirm('Убрать запись из списка? Сам видеофайл останется на диске.'))return;try{await api.forgetRecording(row.id);if(!closed){stopPlayback();await load();}}catch(e){if(!closed)error(e);}};
    const edit=document.createElement('button');edit.className='minor archive-edit';edit.textContent='Название / заметка';
    edit.onclick=async()=>{if(document.querySelector('#recordingMetadata'))return;const saved=await editRecordingMetadata(api,row);if(closed||!saved)return;if(playingId===row.id)q('.archive-playing-name').textContent=saved.label;await load();};
-   buttons.append(play,edit,reveal,forget);item.append(info,buttons);list.append(item);
+   buttons.append(play,edit,reveal);
+   if(!row.available){const relink=document.createElement('button');relink.className='minor archive-relink';relink.textContent='Найти файл';relink.title='Указать перенесённый WebM, сохранив название, заметку и дату записи. Выберите тот же видеофайл.';
+    relink.onclick=async()=>{relink.disabled=true;if(playingId===row.id)stopPlayback();try{const result=await api.relinkRecording(row.id);if(closed||result?.canceled)return;await load();if(!closed)q('.archive-summary').textContent+=' · Ссылка на файл восстановлена';}catch(errorValue){if(!closed)error(errorValue);}finally{if(!closed)relink.disabled=false;}};
+    buttons.append(relink);
+   }
+   buttons.append(forget);item.append(info,buttons);list.append(item);
   }
   q('.archive-prev').disabled=page===0;q('.archive-next').disabled=(page+1)*pageSize>=filtered.length;q('.archive-page').textContent=`${page+1} / ${Math.max(1,Math.ceil(filtered.length/pageSize))}`;
  }

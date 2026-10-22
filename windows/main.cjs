@@ -235,6 +235,17 @@ ipcMain.handle('events:export',async event=>{
  if(result.canceled||!result.filePath)return {saved:false};return eventLog().export(result.filePath);
 });
 ipcMain.handle('archive:update',(_,id,metadata)=>recordingArchive().updateMetadata(id,metadata));
+const archiveRelinkOwners=new Set();
+ipcMain.handle('archive:relink',async(event,id)=>{
+ const owner=event.sender.id;if(archiveRelinkOwners.has(owner))throw Error('Дождитесь выбора файла для предыдущей записи');
+ archiveRelinkOwners.add(owner);
+ try{
+  const archive=recordingArchive(),record=await archive.get(id);
+  const result=await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender),{title:'Найти перенесённый WebM: '+record.label,buttonLabel:'Выбрать запись',filters:[{name:'Видео WebM',extensions:['webm']}],properties:['openFile']});
+  if(result.canceled||!result.filePaths?.length)return {canceled:true};
+  return await archive.relink(id,result.filePaths[0]);
+ }finally{archiveRelinkOwners.delete(owner);}
+});
 ipcMain.handle('archive:list',()=>recordingArchive().list());
 ipcMain.handle('archive:play',(_,id)=>recordingArchive().playback(id));
 ipcMain.handle('archive:reveal',async(_,id)=>{shell.showItemInFolder(await recordingArchive().revealPath(id));return {shown:true};});

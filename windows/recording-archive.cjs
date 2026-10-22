@@ -58,6 +58,16 @@ class RecordingArchive {
   await this.mutate(records=>{const index=records.findIndex(r=>r.id===id);if(index===-1)throw Error('Запись не найдена в архиве');updated={...records[index],label,note};records[index]=updated;return records;});
   return {id:updated.id,label:updated.label,note:updated.note};
  }
+ async relink(id,selectedPath){
+  await this.get(id);
+  const {filePath,info}=await this.probe(selectedPath);let updated;
+  await this.mutate(records=>{
+   const index=records.findIndex(r=>r.id===id);if(index===-1)throw Error('Запись не найдена в архиве');
+   if(records.some(r=>r.id!==id&&key(r.filePath)===key(filePath)))throw Error('Этот файл уже связан с другой записью архива. Выберите перенесённый файл этой записи.');
+   updated={...records[index],filePath,bytes:info.size};records[index]=updated;return records;
+  });
+  return {id:updated.id,filePath:updated.filePath};
+ }
  async playback(id){const entry=await this.get(id);await this.probe(entry.filePath);return {url:`usc-recording://${entry.id}/`,label:entry.label};}
  async revealPath(id){const entry=await this.get(id);if(!(await fs.stat(entry.filePath)).isFile())throw Error('Файл недоступен');return fs.realpath(entry.filePath);}
  async response(id,rangeHeader,method='GET'){

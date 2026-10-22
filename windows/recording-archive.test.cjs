@@ -54,3 +54,27 @@ test('oversized metadata index is rejected before replacing the readable index',
  const row=await archive.add({saved:true,filePath:await video(dir)}),before=await fs.readFile(path.join(dir,'index.json'),'utf8');
  await assert.rejects(archive.mutate(()=>Array.from({length:5000},()=>({...row,note:'x'.repeat(2000)}))),/8 МиБ/);assert.equal(await fs.readFile(path.join(dir,'index.json'),'utf8'),before);assert.equal((await archive.list()).length,1);
 }));
+
+test('relink moved video preserves ID, labels, notes, date and file bytes across archive reload',()=>fixture(async(dir,archive)=>{
+ const oldPath=await video(dir,'old.webm'),row=await archive.add({saved:true,filePath:oldPath,label:'Пульт А',startedAt:'2026-10-22T10:00:00Z'});await archive.updateMetadata(row.id,{label:'Тренировка',note:'02:15 — связь'});const moved=path.join(dir,'moved.webm');await fs.rename(oldPath,moved);const before=await fs.readFile(moved);
+ assert.equal((await archive.list())[0].available,false);await archive.relink(row.id,moved);const restored=new RecordingArchive(path.join(dir,'index.json')),saved=(await restored.list())[0];assert.equal(saved.id,row.id);assert.equal(saved.label,'Тренировка');assert.equal(saved.note,'02:15 — связь');assert.equal(saved.createdAt,row.createdAt);assert.equal(saved.filePath,moved);assert.equal(saved.available,true);assert.equal(saved.bytes,before.length);assert.deepEqual(await fs.readFile(moved),before);await assert.rejects(fs.stat(oldPath));assert.equal((await restored.playback(row.id)).url,`usc-recording://${row.id}/`);assert.deepEqual(Buffer.from(await (await restored.response(row.id,null)).arrayBuffer()),before);
+}));
+test('relink validates file type and header without replacing the previous archive entry',()=>fixture(async(dir,archive)=>{
+ const row=await archive.add({saved:true,filePath:await video(dir)}),before=await fs.readFile(path.join(dir,'index.json'),'utf8');const wrong=path.join(dir,'wrong.webm');await fs.writeFile(wrong,'Not WebM');
+ for(const selected of [wrong,path.join(dir,'missing.webm'),path.join(dir,'video.exe'),'relative.webm',null])await assert.rejects(archive.relink(row.id,selected));
+ await assert.rejects(archive.relink(crypto.randomUUID(),row.filePath));assert.equal(await fs.readFile(path.join(dir,'index.json'),'utf8'),before);assert.equal((await archive.get(row.id)).filePath,row.filePath);
+}));
+test('relink refuses a file already associated with another archive entry',()=>fixture(async(dir,archive)=>{
+ const a=await archive.add({saved:true,filePath:await video(dir,'a.webm')}),b=await archive.add({saved:true,filePath:await video(dir,'b.webm')});const before=await fs.readFile(path.join(dir,'index.json'),'utf8');await assert.rejects(archive.relink(a.id,b.filePath),/уже связан/);assert.equal(await fs.readFile(path.join(dir,'index.json'),'utf8'),before);assert.equal((await archive.list()).length,2);
+}));
+test('concurrent relinks cannot bind two entries to the same file',()=>fixture(async(dir,archive)=>{
+ const a=await archive.add({saved:true,filePath:await video(dir,'a.webm')}),b=await archive.add({saved:true,filePath:await video(dir,'b.webm')}),target=await video(dir,'new.webm');
+ const results=await Promise.allSettled([archive.relink(a.id,target),archive.relink(b.id,target)]);assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal((await archive.list()).filter(r=>r.filePath===target).length,1);assert.equal((await archive.list()).length,2);
+}));
+test('relink preserves simultaneous metadata edits and cannot restore forgotten entries',()=>fixture(async(dir,archive)=>{
+ const row=await archive.add({saved:true,filePath:await video(dir,'a.webm')}),target=await video(dir,'new.webm');await Promise.all([archive.relink(row.id,target),archive.updateMetadata(row.id,{label:'Обновлённое',note:'Заметка'})]);assert.equal((await archive.get(row.id)).label,'Обновлённое');assert.equal((await archive.get(row.id)).note,'Заметка');assert.equal((await archive.get(row.id)).filePath,target);await archive.forget(row.id);await assert.rejects(archive.relink(row.id,target));assert.equal((await archive.list()).length,0);assert.ok(await fs.stat(target));
+}));
+test('failed index replacement keeps the old association and selected video intact',()=>fixture(async(dir,archive)=>{
+ const row=await archive.add({saved:true,filePath:await video(dir,'a.webm')}),target=await video(dir,'new.webm'),before=await fs.readFile(target),index=archive.indexPath;const blocked=path.join(dir,'blocked-index');await fs.mkdir(blocked);archive.indexPath=blocked;
+ await assert.rejects(archive.relink(row.id,target));archive.indexPath=index;assert.equal((await archive.get(row.id)).filePath,row.filePath);assert.deepEqual(await fs.readFile(target),before);assert.equal(JSON.parse(await fs.readFile(index,'utf8')).records[0].filePath,row.filePath);
+}));
