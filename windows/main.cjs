@@ -1,6 +1,8 @@
 // Windows owns the API lifecycle and the bundled native LiveKit SFU.
 // No cloud LiveKit credentials or external API server are required for LAN testing.
-const {app, BrowserWindow, ipcMain, safeStorage, dialog, protocol, shell, nativeImage, powerSaveBlocker} = require('electron');
+const {app, BrowserWindow, ipcMain, safeStorage, dialog, protocol, shell, nativeImage, powerSaveBlocker, clipboard} = require('electron');
+const {SecretClipboard}=require('./secret-clipboard.cjs');
+const secretClipboard=new SecretClipboard({clipboard});
 const {validateInvite,saveInvite}=require('./invite-file.cjs');
 const {PowerGuard}=require('./power-guard.cjs');
 let powerGuardInstance;
@@ -256,6 +258,7 @@ ipcMain.handle('server:recover',async()=>{
   if(apiServer || starting || stopping)throw Error('Нельзя восстанавливать LiveKit во время работы приложения');
   return managedProcess(livekitExecutable,path.join(app.getPath('userData'),'local-server'),{terminate:true});
 });
+ipcMain.handle('invite:copy',(_,code)=>secretClipboard.copy(code));
 ipcMain.handle('invite:save',async(event,code)=>{validateInvite(code);const result=await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender),{title:'Сохранить конфиденциальный код подключения',defaultPath:'USC_connection.usc',filters:[{name:'Код подключения USC (содержит секреты)',extensions:['usc']}]});if(result.canceled||!result.filePath||event.sender.isDestroyed())return {canceled:true};return saveInvite(result.filePath,code);});
 ipcMain.handle('power:configure',(_,enabled)=>powerGuard().setEnabled(enabled));
 ipcMain.handle('server:status',()=>status());
@@ -309,4 +312,4 @@ app.on('before-quit',e=>{
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
 app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)mainWindow();});
 
-app.on('will-quit',()=>powerGuardInstance?.update(false));
+app.on('will-quit',()=>{secretClipboard.clear();powerGuardInstance?.update(false);});

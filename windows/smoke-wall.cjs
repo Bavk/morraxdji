@@ -12,6 +12,9 @@ const {RecordingArchive,registerArchiveScheme,handleArchiveProtocol}=require('./
 registerArchiveScheme(protocol);
 const recordingStore=new RecordingStore({onSaved:result=>archive.add(result)});const savedRecordings=[];const recordingChunks=new Map();let recordingIndex=0,playback;
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'usc-wall-smoke-'));
+const {SecretClipboard}=require('./secret-clipboard.cjs');
+let syntheticClipboard='';const clipboardCallbacks=[];
+const inviteClipboard=new SecretClipboard({clipboard:{writeText:value=>{syntheticClipboard=value;},readText:()=>syntheticClipboard,clear:()=>{syntheticClipboard='';}},setTimer:callback=>{clipboardCallbacks.push(callback);return clipboardCallbacks.length;},clearTimer:()=>{}});
 const {saveInvite}=require('./invite-file.cjs');
 const {makeInvite,wireguardKeys}=require('./vpn.cjs');
 const syntheticInvite=makeInvite({operatorKey:'STRM_'+'x'.repeat(32),privateKey:wireguardKeys().privateKey,address:'10.77.0.100',relayKey:wireguardKeys().publicKey,endpoint:'relay.example.com:51820'});
@@ -57,6 +60,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('server:status',()=>({power:powerGuard.status(),running:true,mode:'lan',ips:[ip],vpn:{configured:false},operatorUrl:base}));
  ipcMain.handle('key:rename',(_,id,keyId,name)=>call(`/api/admin/rooms/${id}/keys/${keyId}`,'PATCH',{name}));
  ipcMain.handle('key:create',()=>({key:syntheticInvite}));
+ ipcMain.handle('invite:copy',(_,code)=>inviteClipboard.copy(code));
  ipcMain.handle('invite:save',(_,code)=>saveInvite(path.join(dir,'synthetic-invite.usc'),code));
  ipcMain.handle('room:rename',(_,id,name)=>call(`/api/admin/rooms/${id}`,'PATCH',{name}));
  ipcMain.handle('room:list',()=>call('/api/admin/rooms'));
@@ -347,6 +351,13 @@ app.whenReady().then(async()=>{
  await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('.record-button'))"),'single room video');
  await viewer.webContents.executeJavaScript("window.prompt=()=> 'Synthetic operator';document.querySelector('#newKey').click()");
  await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('#saveInvite'))"),'invite export dialog');
+ await viewer.webContents.executeJavaScript("document.querySelector('#copyKey').click()");
+ await until(()=>syntheticClipboard===syntheticInvite,'synthetic invite copied through IPC');
+ clipboardCallbacks.at(-1)();assert.equal(syntheticClipboard,'');
+ await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('#copyKey').disabled"),'copy button returns after IPC');
+ await viewer.webContents.executeJavaScript("document.querySelector('#copyKey').click()");
+ await until(()=>syntheticClipboard===syntheticInvite,'invite copied again');
+ syntheticClipboard='Unrelated user text';clipboardCallbacks.at(-1)();assert.equal(syntheticClipboard,'Unrelated user text');
  await viewer.webContents.executeJavaScript("document.querySelector('#saveInvite').click()");
  await until(()=>fs.existsSync(path.join(dir,'synthetic-invite.usc')),'synthetic enrollment export');
  assert.equal(fs.readFileSync(path.join(dir,'synthetic-invite.usc'),'utf8').trim(),syntheticInvite);
@@ -381,5 +392,5 @@ app.whenReady().then(async()=>{
  assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===6,'final chunk saved before window closes');await verifyRecording(savedRecordings[5]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate, live room rename preserves tracks/recordings/search, live operator rename preserves credentials/tracks/recordings/search, favorites filter/recording/reveal/reload/reconnect');
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate, live room rename preserves tracks/recordings/search, live operator rename preserves credentials/tracks/recordings/search, favorites filter/recording/reveal/reload/reconnect, timed invite clipboard cleanup preserves unrelated text');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

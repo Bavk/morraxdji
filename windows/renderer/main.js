@@ -249,7 +249,7 @@ function showKey(key,name){
  <textarea readonly rows="3"></textarea><div class="actions"><button id="copyKey" class="primary">Скопировать код</button><button id="saveInvite" class="minor">Сохранить VPN-код</button><button id="closeKey" class="minor">Закрыть</button></div>`;
  dialog.querySelector('textarea').value=key;
  document.body.append(dialog);dialog.showModal();
- dialog.querySelector('#copyKey').onclick=()=>navigator.clipboard.writeText(key).then(()=>alert('Ключ скопирован')).catch(()=>{dialog.querySelector('textarea').select();document.execCommand('copy');});
+ dialog.querySelector('#copyKey').onclick=async()=>{const button=dialog.querySelector('#copyKey');button.disabled=true;try{await window.streamControl.copyInvite(key);recordingNotice('Код скопирован. Через 60 секунд программа очистит его из буфера, если вы не скопируете другой текст.');}catch{recordingNotice('Не удалось скопировать код. Повторите попытку или сохраните VPN-код в файл.',true);}finally{button.disabled=false;}};
  const save=dialog.querySelector('#saveInvite');save.disabled=!key.startsWith('USCV1.');save.onclick=async()=>{save.disabled=true;try{const result=await window.streamControl.saveInvite(key);if(result.saved)recordingNotice('Код сохранён в файл .usc. Он содержит секрет подключения: передайте его только нужному оператору.');}catch{recordingNotice('Не удалось сохранить код. Выберите новый файл .usc.',true);}finally{save.disabled=false;}};
  const note=document.createElement('p');note.textContent='Файл .usc содержит секреты VPN. На Android нажмите «Загрузить код из файла». Не публикуйте файл и удалите лишние копии после передачи.';dialog.append(note);
  dialog.querySelector('#closeKey').onclick=()=>dialog.close();dialog.addEventListener('close',()=>dialog.remove());
