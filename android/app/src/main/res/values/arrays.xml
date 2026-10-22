@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources><string-array name="stream_quality">
+    <item>Экономия — 360p / 15 FPS (до 0,4 Мбит/с)</item>
+    <item>Стандарт — 720p / 15 FPS (до 1,2 Мбит/с)</item>
+    <item>Детали — 1080p / 15 FPS (до 2,5 Мбит/с)</item>
+</string-array></resources>

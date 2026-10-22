@@ -1,0 +1,62 @@
+{
+  "name": "universal-stream-control-windows",
+  "version": "0.15.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "build:ui": "vite build && node ../scripts/verify-ui-build.mjs",
+    "start": "electron .",
+    "dev": "npm run build:ui && electron .",
+    "dist:win": "npm run build:ui && electron-builder --win nsis",
+    "audit": "node ../scripts/source-audit.mjs",
+    "smoke:ui": "electron smoke.cjs"
+  },
+  "dependencies": {
+    "livekit-client": "^2.15.0"
+  },
+  "devDependencies": {
+    "electron": "^36.0.0",
+    "vite": "^6.3.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.universalstream.control",
+    "productName": "Universal Stream Control",
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "vpn.cjs",
+      "vpn-manager.cjs",
+      "preflight.cjs",
+      "compose-config.cjs",
+      "server-recovery.cjs",
+      "diagnostic-report.cjs",
+      "wireguard-service.cjs",
+      "dist/**/*",
+      "package.json",
+      "vite.config.mjs",
+      "room-lifecycle.cjs"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "extraResources": [
+      {
+        "from": "../server",
+        "to": "server",
+        "filter": [
+          "server.mjs",
+          "livekit-admin.mjs",
+          "operator-network.mjs",
+          "revoked-reconciler.mjs",
+          "pending-deletions.mjs"
+        ]
+      }
+    ]
+  }
+}

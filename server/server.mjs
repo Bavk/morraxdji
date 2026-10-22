@@ -1,0 +1,220 @@
+import http from 'node:http';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { LiveKitAdmin } from './livekit-admin.mjs';
+import { isProvisionedVpnAddress, vpnPeerMatchesOperator } from './operator-network.mjs';
+import { startRevocationReconciler, reconcileRevokedOperators } from './revoked-reconciler.mjs';
+import {reconcilePendingRoomDeletions,DELETED_ROOM_GUARD_MS} from './pending-deletions.mjs';
+
+const base = path.dirname(fileURLToPath(import.meta.url));
+// Used both as a standalone Node.js API and embedded inside the Windows Electron main process.
+export async function createApiServer(config = {}) {
+const dataPath = config.dataPath || process.env.DATA_FILE || path.join(base, 'data', 'rooms.json');
+const port = Number(config.port ?? process.env.PORT ?? 3100);
+const host = config.host || process.env.HOST || '127.0.0.1';
+const adminPassword = config.adminPassword || process.env.ADMIN_PASSWORD || '';
+const apiKey = config.apiKey || process.env.LIVEKIT_API_KEY || '';
+const apiSecret = config.apiSecret || process.env.LIVEKIT_API_SECRET || '';
+const wsUrl = config.wsUrl || process.env.LIVEKIT_WS_URL || '';
+const desktopWsUrl = config.desktopWsUrl || wsUrl;
+const operatorAccess = config.operatorAccess || 'any';
+if(!['any','vpn-only'].includes(operatorAccess))throw Error('Invalid operatorAccess policy');
+// VPN-only deployments must supply the operator-to-VPN-IP mapping (no fallback).
+if(operatorAccess==='vpn-only' && typeof config.operatorVpnAddressForId !== 'function')
+  throw Error('VPN-only mode requires operatorVpnAddressForId');
+// Standalone test API can omit moderation; the Electron host enables it explicitly.
+const mediaControl = config.livekitControl || (config.livekitHttpUrl ? new LiveKitAdmin({endpoint:config.livekitHttpUrl,apiKey,apiSecret}) : null);
+if (adminPassword.length < 20 || apiSecret.length < 20 || !apiKey || !/^wss?:\/\//.test(wsUrl)) {
+  throw Error('Configure ADMIN_PASSWORD (>=20 chars), LIVEKIT_API_KEY, LIVEKIT_API_SECRET (>=20 chars), LIVEKIT_WS_URL.');
+}
+if (!Number.isInteger(port) || port < 0 || port > 65535) throw Error('Invalid PORT');
+
+function hash(s) { return crypto.createHash('sha256').update(s).digest('hex'); }
+function uid(prefix) { return `${prefix}_${crypto.randomBytes(10).toString('hex')}`; }
+function fixedEqual(a, b) {
+  const x = Buffer.from(a), y = Buffer.from(b);
+  return x.length === y.length && crypto.timingSafeEqual(x,y);
+}
+function encodeBase64(data) { return Buffer.from(JSON.stringify(data)).toString('base64url'); }
+function jwt({ identity, name, room, publisher, ttlSeconds = 300 }) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const payload = {
+    iss: apiKey, sub: identity, name, iat: now, nbf: now, exp: now + ttlSeconds,
+    video: { room, roomJoin: true, canPublish: publisher, canSubscribe: !publisher,
+      canPublishData: false, ...(publisher ? { canPublishSources: ['screen_share'] } : {}) }
+  };
+  const unsigned = `${encodeBase64(header)}.${encodeBase64(payload)}`;
+  return `${unsigned}.${crypto.createHmac('sha256', apiSecret).update(unsigned).digest('base64url')}`;
+}
+function readDb() {
+  try { return JSON.parse(fs.readFileSync(dataPath,'utf8')); }
+  catch(e) { if (e.code === 'ENOENT') return { rooms: [] }; throw e; }
+}
+let db = readDb();
+if (!Array.isArray(db.rooms)) throw Error('Bad data file: expected rooms[]');
+if (db.pendingRoomDeletes === undefined) db.pendingRoomDeletes=[]; // v0.11 migration
+if (!Array.isArray(db.pendingRoomDeletes) || db.pendingRoomDeletes.some(item=>!item || !/^room_[a-f0-9]{20}$/.test(item.id) || !Number.isSafeInteger(item.expireAt) || item.expireAt <= 0))
+  throw Error('Bad data file: invalid pendingRoomDeletes');
+function persist() {
+  fs.mkdirSync(path.dirname(dataPath),{recursive:true});
+  const temp = `${dataPath}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(db,null,2),{mode:0o600});
+  fs.renameSync(temp,dataPath);
+}
+function acknowledgeDeletedRoom(id) {
+  if (!db.pendingRoomDeletes.some(item=>item.id===id && Date.now()>=item.expireAt)) return;
+  db.pendingRoomDeletes=db.pendingRoomDeletes.filter(item=>item.id!==id);
+  persist();
+}
+function reply(res,code,body) {
+  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8',
+    'cache-control':'no-store', 'x-content-type-options':'nosniff',
+    'referrer-policy':'no-referrer' });
+  res.end(JSON.stringify(body));
+}
+async function readBody(req) {
+  let body = '';
+  for await (const chunk of req) { body += chunk.toString('utf8'); if (body.length > 4096) throw Object.assign(Error('Payload too large'),{code:413}); }
+  try { return body ? JSON.parse(body) : {}; } catch { throw Object.assign(Error('Invalid JSON'),{code:400}); }
+}
+function visibleRoom(room) {
+  return { id:room.id, name:room.name, keys:room.keys.map(k => ({ id:k.id,name:k.name,createdAt:k.createdAt,revoked:!!k.revoked })) };
+}
+function admin(req) {
+  // Management endpoints are never available from other computers in this prototype.
+  // Operators only need /api/operator/session.
+  if (!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) return false;
+  const h = req.headers.authorization || '';
+  return h.startsWith('Bearer ') && fixedEqual(h.slice(7),adminPassword);
+}
+const server = http.createServer(async (req,res) => {
+  try {
+    const pathname = new URL(req.url,'http://localhost').pathname;
+    if (req.method === 'GET' && pathname === '/health') return reply(res,200,{ok:true});
+    if (req.method === 'POST' && pathname === '/api/operator/session') {
+      if(operatorAccess==='vpn-only' && !isProvisionedVpnAddress(req.socket.remoteAddress))
+        return reply(res,403,{error:'Operator access requires the configured VPN tunnel'});
+      const body = await readBody(req);
+      const key = typeof body.key === 'string' ? body.key.trim() : '';
+      if (!key || key.length > 160) return reply(res,400,{error:'Invalid key'});
+      const keyHash = hash(key);
+      for (const room of db.rooms) {
+        const operator = room.keys.find(k => !k.revoked && fixedEqual(k.hash,keyHash));
+        if (operator) {
+          if(operatorAccess==='vpn-only' && !vpnPeerMatchesOperator(req.socket.remoteAddress,operator.id,config.operatorVpnAddressForId))
+            return reply(res,403,{error:'This key does not belong to the connected VPN device'});
+          return reply(res,200,{wsUrl,roomName:room.name,operatorName:operator.name,
+          token:jwt({identity:`operator_${operator.id}`,name:operator.name,room:room.id,publisher:true})});
+        }
+      }
+      return reply(res,401,{error:'Invalid or revoked key'});
+    }
+    if (!pathname.startsWith('/api/admin/')) return reply(res,404,{error:'Not found'});
+    if (!admin(req)) return reply(res,401,{error:'Unauthorized'});
+    if (req.method === 'POST' && pathname === '/api/admin/reconcile-revoked') {
+      if (!mediaControl) return reply(res,503,{error:'LiveKit moderation is not enabled'});
+      const revoke=await reconcileRevokedOperators(db.rooms,mediaControl);
+      const deleted=await reconcilePendingRoomDeletions(db.pendingRoomDeletes,mediaControl,acknowledgeDeletedRoom);
+      return reply(res,200,{...revoke,...deleted});
+    }
+    if (req.method === 'GET' && pathname === '/api/admin/rooms') return reply(res,200,{rooms:db.rooms.map(visibleRoom),pendingDeletedRooms:db.pendingRoomDeletes.length});
+    if (req.method === 'POST' && pathname === '/api/admin/rooms') {
+      const body = await readBody(req);
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name || name.length > 80) return reply(res,400,{error:'Room name must be 1..80 chars'});
+      const room = { id:uid('room'),name,keys:[] };
+      db.rooms.push(room); persist(); return reply(res,201,{room:visibleRoom(room)});
+    }
+    const roomMatch = pathname.match(/^\/api\/admin\/rooms\/(room_[a-f0-9]{20})(?:\/(keys|viewer|presence|selftest))?(?:\/(key_[a-f0-9]{20}))?$/);
+    if (!roomMatch) return reply(res,404,{error:'Not found'});
+    const [,id,action,keyId] = roomMatch;
+    const room = db.rooms.find(r => r.id === id);
+    if (!room) return reply(res,404,{error:'Room not found'});
+    if (req.method === 'DELETE' && !action) {
+      // Remove local access FIRST, then attempt LiveKit deletion. If LiveKit is
+      // down, retain a persistent tombstone until a later reconciliation sweep.
+      if (mediaControl && !db.pendingRoomDeletes.some(item=>item.id===id))
+        db.pendingRoomDeletes.push({id,expireAt:Date.now()+DELETED_ROOM_GUARD_MS});
+      db.rooms = db.rooms.filter(r => r.id !== id); persist();
+      let mediaDisconnected=!mediaControl;
+      if (mediaControl) {
+        try {await mediaControl.deleteRoom(id);mediaDisconnected=true;}
+        catch(e){console.error('LiveKit room deletion pending:',e.message);}
+      }
+      return reply(res,200,{ok:true,mediaDisconnected,
+        ...(!mediaDisconnected?{warning:'Комната удалена на Windows, но LiveKit пока недоступен. Отключение активных участников будет повторено автоматически.'}:{})});
+    }
+    if (req.method === 'GET' && action === 'presence' && !keyId) {
+      if(!mediaControl) return reply(res,503,{error:'LiveKit management is not enabled'});
+      const connected=await mediaControl.listParticipants(id);
+      const byIdentity=new Map(connected.map(p=>[p.identity,p]));
+      const operators=room.keys.map(k=>{
+        const p=byIdentity.get(`operator_${k.id}`);
+        return {id:k.id,online:!!p && !k.revoked,streaming:!!p && !k.revoked && Array.isArray(p.tracks) && p.tracks.some(t=>
+          (t.source===3 || t.source==='SCREEN_SHARE') && !t.muted),
+          joinedAt:p?.joinedAt || p?.joined_at || null};
+      });
+      return reply(res,200,{operators});
+    }
+    if (req.method === 'POST' && action === 'keys' && !keyId) {
+      const body = await readBody(req);
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name || name.length > 60) return reply(res,400,{error:'Operator name must be 1..60 chars'});
+      const secret = `STRM_${crypto.randomBytes(24).toString('base64url')}`;
+      const k = {id:uid('key'),name,hash:hash(secret),createdAt:new Date().toISOString(),revoked:false};
+      room.keys.push(k); persist();
+      return reply(res,201,{key:secret,operator:{id:k.id,name:k.name}});
+    }
+    if (req.method === 'DELETE' && action === 'keys' && keyId) {
+      const k = room.keys.find(k => k.id === keyId);
+      if (!k) return reply(res,404,{error:'Key not found'});
+      // Persist revocation first, then kick the connected participant.
+      k.revoked = true; persist();
+      let mediaDisconnected=true;
+      if(mediaControl){
+        try { await mediaControl.removeParticipant(id,`operator_${k.id}`); }
+        catch(e){
+          // Never turn a persisted local revocation into HTTP 500: Windows still
+          // needs to remove this operator's WireGuard peer on the relay.
+          mediaDisconnected=false;
+          console.error('LiveKit participant kick pending:',e.message);
+        }
+      }
+      return reply(res,200,{ok:true,mediaDisconnected,
+        ...(mediaDisconnected?{}:{warning:'Ключ заблокирован, но активный видеосеанс не удалось принудительно завершить. Проверьте LiveKit.'})});
+    }
+    if (req.method === 'POST' && action === 'selftest' && !keyId) {
+      // Local Windows-only test: publish a synthetic screen track, never a camera or microphone.
+      // Does not create a reusable operator key or a VPN peer.
+      const identity = uid('selftest');
+      return reply(res,200,{wsUrl:desktopWsUrl,identity,
+        token:jwt({identity,name:'Тест Windows',room:room.id,publisher:true,ttlSeconds:90})});
+    }
+    if (req.method === 'POST' && action === 'viewer' && !keyId) {
+      return reply(res,200,{wsUrl:desktopWsUrl,token:jwt({identity:uid('viewer'),name:'Windows Viewer',room:room.id,publisher:false})});
+    }
+    return reply(res,405,{error:'Method not allowed'});
+  } catch(e) { console.error(e.message); reply(res,e.code || 500,{error:e.code ? e.message : 'Server error'}); }
+});
+const reconciler = mediaControl && config.revocationReconcile !== false
+  ? startRevocationReconciler({getRooms:() => db.rooms,mediaControl,
+      getDeletedRooms:()=>db.pendingRoomDeletes,ackDeletedRoom:acknowledgeDeletedRoom,
+      periodMs:config.revocationPeriodMs ?? 30000}) : null;
+if (reconciler) server.once('close', () => reconciler.stop());
+return await new Promise((resolve, reject) => {
+  server.once('error', err => {reconciler?.stop();reject(err);});
+  server.listen(port,host,() => {
+    if(reconciler)void reconciler.sweep().catch(e=>console.warn('Initial revoke reconciliation failed:',e.message));
+    console.log(`Universal Stream API listening on http://${host}:${port}`);
+    resolve(server);
+  });
+});
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await createApiServer();
+}
+

@@ -1,0 +1,345 @@
+TAP version 13
+# Subtest: Provision Windows and operator peers + revoke via authenticated API
+ok 1 - Provision Windows and operator peers + revoke via authenticated API
+  ---
+  duration_ms: 100.071124
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# LiveKit room deletion pending: Simulated LiveKit outage
+# Universal Stream API listening on http://127.0.0.1:0
+# Universal Stream API listening on http://127.0.0.1:0
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: room deletion revokes access immediately and persists LiveKit cleanup across Windows restart
+ok 2 - room deletion revokes access immediately and persists LiveKit cleanup across Windows restart
+  ---
+  duration_ms: 193.07902
+  type: 'test'
+  ...
+# Subtest: legacy v0.11 rooms data upgrades without resetting keys
+ok 3 - legacy v0.11 rooms data upgrades without resetting keys
+  ---
+  duration_ms: 16.814289
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: embedded Windows API uses separate operator and local-viewer endpoints
+ok 4 - embedded Windows API uses separate operator and local-viewer endpoints
+  ---
+  duration_ms: 121.811918
+  type: 'test'
+  ...
+# Subtest: LiveKit local Twirp API moderation and JWT permissions
+ok 5 - LiveKit local Twirp API moderation and JWT permissions
+  ---
+  duration_ms: 4.148309
+  type: 'test'
+  ...
+# Subtest: Twirp control does not accept remote endpoints
+ok 6 - Twirp control does not accept remote endpoints
+  ---
+  duration_ms: 0.849241
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: presence and revocation immediately disconnect active streaming operators
+ok 7 - presence and revocation immediately disconnect active streaming operators
+  ---
+  duration_ms: 159.178262
+  type: 'test'
+  ...
+# LiveKit participant kick pending: LiveKit offline
+# Subtest: revoked key remains blocked even if LiveKit disconnect command fails
+ok 8 - revoked key remains blocked even if LiveKit disconnect command fails
+  ---
+  duration_ms: 67.368924
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: allow provisioned WireGuard addresses only, reject spoofed/unrelated IPs
+ok 9 - allow provisioned WireGuard addresses only, reject spoofed/unrelated IPs
+  ---
+  duration_ms: 1.477668
+  type: 'test'
+  ...
+# Subtest: VPN mode denies operator authorization over loopback/LAN but keeps local admin usable
+ok 10 - VPN mode denies operator authorization over loopback/LAN but keeps local admin usable
+  ---
+  duration_ms: 70.229449
+  type: 'test'
+  ...
+# Subtest: operator invite belongs only to its provisioned WireGuard IP
+ok 11 - operator invite belongs only to its provisioned WireGuard IP
+  ---
+  duration_ms: 0.700885
+  type: 'test'
+  ...
+# Subtest: VPN mode refuses to start without a trusted per-operator peer mapping
+ok 12 - VPN mode refuses to start without a trusted per-operator peer mapping
+  ---
+  duration_ms: 0.867378
+  type: 'test'
+  ...
+# Subtest: deletes only distinct pending rooms and acknowledges after LiveKit success
+ok 13 - deletes only distinct pending rooms and acknowledges after LiveKit success
+  ---
+  duration_ms: 2.106194
+  type: 'test'
+  ...
+# Subtest: keeps a deletion tombstone when LiveKit is offline; retries later
+ok 14 - keeps a deletion tombstone when LiveKit is offline; retries later
+  ---
+  duration_ms: 1.808129
+  type: 'test'
+  ...
+# Subtest: lack of a media controller must not acknowledge pending deletions
+ok 15 - lack of a media controller must not acknowledge pending deletions
+  ---
+  duration_ms: 3.552513
+  type: 'test'
+  ...
+# Subtest: a deleted room is repeatedly disconnected while an issued JWT may still be valid
+ok 16 - a deleted room is repeatedly disconnected while an issued JWT may still be valid
+  ---
+  duration_ms: 0.777754
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# LiveKit participant kick pending: LiveKit offline
+# Subtest: admin-only reconciliation endpoint retries revocation on LiveKit recovery
+ok 17 - admin-only reconciliation endpoint retries revocation on LiveKit recovery
+  ---
+  duration_ms: 208.308101
+  type: 'test'
+  ...
+# Subtest: removes only revoked identities
+ok 18 - removes only revoked identities
+  ---
+  duration_ms: 2.853873
+  type: 'test'
+  ...
+# Subtest: retries after a media server outage
+ok 19 - retries after a media server outage
+  ---
+  duration_ms: 0.430286
+  type: 'test'
+  ...
+# Subtest: one failed room or participant does not block the rest
+ok 20 - one failed room or participant does not block the rest
+  ---
+  duration_ms: 0.438237
+  type: 'test'
+  ...
+# Subtest: serial sweeps cannot overlap and stop cancels future ticks
+ok 21 - serial sweeps cannot overlap and stop cancels future ticks
+  ---
+  duration_ms: 2.602547
+  type: 'test'
+  ...
+# Subtest: rooms without revoked keys incur no LiveKit calls
+ok 22 - rooms without revoked keys incur no LiveKit calls
+  ---
+  duration_ms: 0.405796
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: Windows-local test publisher is authenticated, short-lived, screen-only and requires room
+ok 23 - Windows-local test publisher is authenticated, short-lived, screen-only and requires room
+  ---
+  duration_ms: 133.771754
+  type: 'test'
+  ...
+# Subtest: admin authentication and operator flow
+ok 24 - admin authentication and operator flow
+  ---
+  duration_ms: 102.33646
+  type: 'test'
+  ...
+# Subtest: LiveKit binds to localhost and only selected VPN IP
+ok 25 - LiveKit binds to localhost and only selected VPN IP
+  ---
+  duration_ms: 2.831161
+  type: 'test'
+  ...
+# Subtest: bind to selected LAN IP for LAN development mode
+ok 26 - bind to selected LAN IP for LAN development mode
+  ---
+  duration_ms: 0.621724
+  type: 'test'
+  ...
+# Subtest: reject misconfigured or injected network addresses
+ok 27 - reject misconfigured or injected network addresses
+  ---
+  duration_ms: 8.331926
+  type: 'test'
+  ...
+# Subtest: LiveKit announces only chosen host address and validates secret
+ok 28 - LiveKit announces only chosen host address and validates secret
+  ---
+  duration_ms: 0.757659
+  type: 'test'
+  ...
+# Subtest: support report contains only safe allowlisted values, no secrets or operator identifiers
+ok 29 - support report contains only safe allowlisted values, no secrets or operator identifiers
+  ---
+  duration_ms: 2.793034
+  type: 'test'
+  ...
+# Subtest: support report handles missing fields and has no secret or IP keys
+ok 30 - support report handles missing fields and has no secret or IP keys
+  ---
+  duration_ms: 0.945198
+  type: 'test'
+  ...
+# Subtest: preflight verifies free TCP and UDP ports
+ok 31 - preflight verifies free TCP and UDP ports
+  ---
+  duration_ms: 22.848125
+  type: 'test'
+  ...
+# Subtest: preflight catches a TCP port conflict
+ok 32 - preflight catches a TCP port conflict
+  ---
+  duration_ms: 4.425216
+  type: 'test'
+  ...
+# Subtest: preflight catches a UDP port conflict
+ok 33 - preflight catches a UDP port conflict
+  ---
+  duration_ms: 1.320486
+  type: 'test'
+  ...
+# Subtest: publishes screen share test pattern and counts only matching received video frame
+ok 34 - publishes screen share test pattern and counts only matching received video frame
+  ---
+  duration_ms: 2.755549
+  type: 'test'
+  ...
+# Subtest: missing video frame times out with diagnostic rather than false success
+ok 35 - missing video frame times out with diagnostic rather than false success
+  ---
+  duration_ms: 3.225767
+  type: 'test'
+  ...
+# Subtest: invalid or duplicate runs are rejected
+ok 36 - invalid or duplicate runs are rejected
+  ---
+  duration_ms: 2.178455
+  type: 'test'
+  ...
+# Subtest: canvas generator draws moving frames, cleans timer and stops capture track
+ok 37 - canvas generator draws moving frames, cleans timer and stops capture track
+  ---
+  duration_ms: 40.863739
+  type: 'test'
+  ...
+# Subtest: early viewer frame does not get overwritten by late publish acknowledgement
+ok 38 - early viewer frame does not get overwritten by late publish acknowledgement
+  ---
+  duration_ms: 1.35657
+  type: 'test'
+  ...
+# Subtest: retry uses capped exponential backoff
+ok 39 - retry uses capped exponential backoff
+  ---
+  duration_ms: 4.921462
+  type: 'test'
+  ...
+# Subtest: schedules only one retry per disconnect and carries selected room
+ok 40 - schedules only one retry per disconnect and carries selected room
+  ---
+  duration_ms: 1.366579
+  type: 'test'
+  ...
+# Subtest: room switch cancels scheduled reconnection
+ok 41 - room switch cancels scheduled reconnection
+  ---
+  duration_ms: 0.670282
+  type: 'test'
+  ...
+# Subtest: recovery is no-op without app-owned config
+ok 42 - recovery is no-op without app-owned config
+  ---
+  duration_ms: 3.327664
+  type: 'test'
+  ...
+# Subtest: recovery only runs docker compose down for an owned configuration
+ok 43 - recovery only runs docker compose down for an owned configuration
+  ---
+  duration_ms: 3.018011
+  type: 'test'
+  ...
+# Subtest: recovery refuses unrelated or modified compose projects
+ok 44 - recovery refuses unrelated or modified compose projects
+  ---
+  duration_ms: 1.167565
+  type: 'test'
+  ...
+# Subtest: cleanup includes revoked peers AND peers whose room was deleted
+ok 45 - cleanup includes revoked peers AND peers whose room was deleted
+  ---
+  duration_ms: 6.400766
+  type: 'test'
+  ...
+# Subtest: cleanup does not delete an active peer despite duplicate peer records
+ok 46 - cleanup does not delete an active peer despite duplicate peer records
+  ---
+  duration_ms: 0.500023
+  type: 'test'
+  ...
+# Subtest: Windows provisioning: enroll hub/operator, persist encrypted relay token, revoke
+ok 47 - Windows provisioning: enroll hub/operator, persist encrypted relay token, revoke
+  ---
+  duration_ms: 16.730897
+  type: 'test'
+  ...
+# Subtest: revoked VPN peers are retried after temporary relay outage
+ok 48 - revoked VPN peers are retried after temporary relay outage
+  ---
+  duration_ms: 7.4116
+  type: 'test'
+  ...
+# Subtest: WireGuard x25519 keypair and operator enrollment code
+ok 49 - WireGuard x25519 keypair and operator enrollment code
+  ---
+  duration_ms: 27.366043
+  type: 'test'
+  ...
+# Subtest: Reject malformed key and endpoint
+ok 50 - Reject malformed key and endpoint
+  ---
+  duration_ms: 7.02271
+  type: 'test'
+  ...
+# Subtest: WireGuard executable discovery prefers ProgramFiles and respects absences
+ok 51 - WireGuard executable discovery prefers ProgramFiles and respects absences
+  ---
+  duration_ms: 2.140739
+  type: 'test'
+  ...
+# Subtest: PowerShell arguments correctly escape apostrophes in Windows profile
+ok 52 - PowerShell arguments correctly escape apostrophes in Windows profile
+  ---
+  duration_ms: 0.365498
+  type: 'test'
+  ...
+# Subtest: VPN activation requires approved existing config and invokes elevation
+ok 53 - VPN activation requires approved existing config and invokes elevation
+  ---
+  duration_ms: 2.972933
+  type: 'test'
+  ...
+1..53
+# tests 53
+# suites 0
+# pass 53
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1999.673101
+Source structure: OK (19 required files; packaged server dependency graph checked)
+Android XML: OK
+
+Note: this is NOT an EXE/APK build or a real streaming/VPN test.

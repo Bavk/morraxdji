@@ -1,24 +1,9 @@
-# Universal Stream Control
+# Universal Stream Control v0.15
 
-Windows-сервер и Windows-клиент просмотра в одном приложении. Android-пульты разных производителей отправляют изображение экрана через WireGuard.
+**Русская документация:** [README_RU.md](README_RU.md).
 
-> Внимание: прототип v0.15. EXE и APK ещё не собраны и не проверены на реальном оборудовании.
+**Сборка EXE и APK через GitHub Actions:** [GITHUB_START_RU.md](GITHUB_START_RU.md).
 
-## Первая сборка через GitHub Actions
+**Первое испытание на оборудовании:** [FIRST_REAL_RUN_RU.md](FIRST_REAL_RUN_RU.md).
 
-1. Скачайте архив **Universal_Stream_Control_v0.15_GitHub_Ready_SOURCE.zip** из чата.
-2. В корне репозитория нажмите **Add file → Upload files** и загрузите **сам ZIP**, не распаковывая. Имя файла необходимо сохранить без изменений.
-3. Нажмите **Commit changes** в ветку `main`.
-4. GitHub автоматически запустит [Build EXE and APK from source ZIP](../../actions/workflows/build-from-source-zip.yml).
-5. Откройте вкладку **Actions**, выберите последний запуск. Если проверки успешны, скачайте два артефакта: `UniversalStream-Windows-EXE-unsigned` и `UniversalStream-Android-Debug-APK`.
-
-Файл `.github/workflows/build-from-source-zip.yml` уже добавлен. Он извлекает исходники в отдельную папку на сборочном агенте, запускает Node.js-тесты, затем параллельно пытается создать EXE и APK. При ошибке откройте красный шаг задания: лог укажет на конкретную проблему.
-
-**Важно:** публичный репозиторий. Не добавляйте приватные WireGuard-ключи, VPN-конфигурации операторов, реальные токены и секреты сервера.
-
-## Статус
-
-- GitHub workflow: загружен.
-- ZIP с исходниками: пока не загружен в репозиторий.
-- GitHub Actions: сборка ещё не запускалась.
-- Тесты: локально пройдены ранее; это не проверка установки EXE/APK.
+> Status: source-code prototype. Passing unit tests does not confirm real Windows/Android builds or video/VPN operation.

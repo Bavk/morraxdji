@@ -1,0 +1,17 @@
+Universal Stream Control v0.15 — результаты проверок от 2026-10-22
+
+Node.js tests: 63/63 PASSED
+Kotlin standalone StreamProfile tests: 7/7 PASSED
+Repository pre-upload safety check: PASSED
+Source layout and packaged module list: PASSED
+JavaScript syntax / Android XML parse / Bash syntax: PASSED
+
+NOT RUN / NOT VERIFIED:
+- GitHub Actions build
+- Windows Electron/NSIS binary compilation
+- Android Gradle debug APK compilation
+- LiveKit video and WireGuard real-device runtime
+- Android release network-security policy on real controller
+
+Known build blocker in this container: npm registry DNS EAI_AGAIN; Android SDK/Gradle dependency download unavailable.
+Do not treat unit tests as proof of production readiness.

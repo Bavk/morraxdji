@@ -1,0 +1,33 @@
+# Generated builds and dependencies
+**/node_modules/
+**/dist/
+**/release/
+**/build/
+**/.gradle/
+**/.idea/
+*.apk
+*.exe
+*.aab
+*.jar
+*.class
+*.log
+# Never upload working credentials or VPN enrollment codes
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.key
+**/internal-secrets.json
+**/rooms.json
+**/livekit.yaml
+**/compose.yaml
+**/usc-host.conf
+**/relay-state.json
+.DS_Store

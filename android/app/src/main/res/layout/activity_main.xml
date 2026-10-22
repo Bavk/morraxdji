@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:fillViewport="true" android:background="#101827">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:padding="24dp" android:orientation="vertical">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="◉ UNIVERSAL STREAM" android:textColor="#93B9FF" android:textSize="17sp"
+            android:textStyle="bold" android:layout_marginTop="22dp"/>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Передача экрана пульта" android:textSize="24sp" android:textStyle="bold"
+            android:textColor="#FFFFFF" android:layout_marginTop="22dp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Вставьте единый код, выданный на Windows. VPN включится автоматически после подтверждения Android. Затем разрешите захват экрана. Звук не передаётся."
+            android:textColor="#BAC6D9" android:textSize="14sp" android:layout_marginTop="10dp" />
+        <LinearLayout android:id="@+id/lanDebugContainer" android:orientation="vertical"
+            android:layout_width="match_parent" android:layout_height="wrap_content">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="АДРЕС (ТОЛЬКО ДЛЯ ЛОКАЛЬНОЙ ОТЛАДКИ)" android:textColor="#A1B3CB"
+            android:layout_marginTop="32dp" android:textSize="12sp" />
+        <EditText android:id="@+id/serverAddress" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:singleLine="true" android:inputType="textUri" android:hint="http://192.168.1.50:3100"
+            android:textColor="#FFFFFF" android:textColorHint="#708099" />
+        </LinearLayout>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="ЕДИНЫЙ КОД ПОДКЛЮЧЕНИЯ" android:textColor="#A1B3CB"
+            android:layout_marginTop="22dp" android:textSize="12sp" />
+        <EditText android:id="@+id/operatorKey" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:singleLine="true" android:inputType="textPassword" android:hint="USCV1. ..."
+            android:textColor="#FFFFFF" android:textColorHint="#708099" />
+        <Button android:id="@+id/pasteButton" android:layout_width="match_parent"
+            android:layout_height="48dp" android:layout_marginTop="12dp"
+            android:text="Вставить код из буфера обмена" android:textAllCaps="false" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="КАЧЕСТВО ТРАНСЛЯЦИИ" android:textColor="#A1B3CB"
+            android:layout_marginTop="22dp" android:textSize="12sp" />
+        <Spinner android:id="@+id/qualitySpinner" android:layout_width="match_parent"
+            android:layout_height="48dp" android:entries="@array/stream_quality"
+            android:padding="8dp" android:background="#E2E8F0" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Профиль применяется при начале следующей трансляции. Рекомендуется стандартный."
+            android:textColor="#BAC6D9" android:textSize="12sp" />
+        <Button android:id="@+id/startButton" android:layout_width="match_parent" android:layout_height="54dp"
+            android:layout_marginTop="32dp" android:text="Начать трансляцию" android:textAllCaps="false" />
+        <Button android:id="@+id/stopButton" android:layout_width="match_parent" android:layout_height="54dp"
+            android:layout_marginTop="12dp" android:text="Остановить трансляцию"
+            android:textAllCaps="false" android:enabled="false"/>
+        <TextView android:id="@+id/statusText" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Не подключено" android:textColor="#9BD3A8" android:textSize="14sp"
+            android:layout_marginTop="20dp" />
+    </LinearLayout>
+</ScrollView>

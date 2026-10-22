@@ -1,0 +1,120 @@
+TAP version 13
+# Subtest: Provision Windows and operator peers + revoke via authenticated API
+ok 1 - Provision Windows and operator peers + revoke via authenticated API
+  ---
+  duration_ms: 125.672943
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: embedded Windows API uses separate operator and local-viewer endpoints
+ok 2 - embedded Windows API uses separate operator and local-viewer endpoints
+  ---
+  duration_ms: 108.146993
+  type: 'test'
+  ...
+# Subtest: LiveKit local Twirp API moderation and JWT permissions
+ok 3 - LiveKit local Twirp API moderation and JWT permissions
+  ---
+  duration_ms: 6.417017
+  type: 'test'
+  ...
+# Subtest: Twirp control does not accept remote endpoints
+ok 4 - Twirp control does not accept remote endpoints
+  ---
+  duration_ms: 0.734937
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: presence and revocation immediately disconnect active streaming operators
+ok 5 - presence and revocation immediately disconnect active streaming operators
+  ---
+  duration_ms: 141.296092
+  type: 'test'
+  ...
+# Subtest: admin authentication and operator flow
+ok 6 - admin authentication and operator flow
+  ---
+  duration_ms: 72.69277
+  type: 'test'
+  ...
+# Subtest: preflight verifies free TCP and UDP ports
+ok 7 - preflight verifies free TCP and UDP ports
+  ---
+  duration_ms: 19.20655
+  type: 'test'
+  ...
+# Subtest: preflight catches a TCP port conflict
+ok 8 - preflight catches a TCP port conflict
+  ---
+  duration_ms: 4.165903
+  type: 'test'
+  ...
+# Subtest: preflight catches a UDP port conflict
+ok 9 - preflight catches a UDP port conflict
+  ---
+  duration_ms: 1.207967
+  type: 'test'
+  ...
+# Subtest: retry uses capped exponential backoff
+ok 10 - retry uses capped exponential backoff
+  ---
+  duration_ms: 2.86221
+  type: 'test'
+  ...
+# Subtest: schedules only one retry per disconnect and carries selected room
+ok 11 - schedules only one retry per disconnect and carries selected room
+  ---
+  duration_ms: 0.366938
+  type: 'test'
+  ...
+# Subtest: room switch cancels scheduled reconnection
+ok 12 - room switch cancels scheduled reconnection
+  ---
+  duration_ms: 1.036983
+  type: 'test'
+  ...
+# Subtest: Windows provisioning: enroll hub/operator, persist encrypted relay token, revoke
+ok 13 - Windows provisioning: enroll hub/operator, persist encrypted relay token, revoke
+  ---
+  duration_ms: 16.626419
+  type: 'test'
+  ...
+# Subtest: WireGuard x25519 keypair and operator enrollment code
+ok 14 - WireGuard x25519 keypair and operator enrollment code
+  ---
+  duration_ms: 8.767458
+  type: 'test'
+  ...
+# Subtest: Reject malformed key and endpoint
+ok 15 - Reject malformed key and endpoint
+  ---
+  duration_ms: 4.978183
+  type: 'test'
+  ...
+# Subtest: WireGuard executable discovery prefers ProgramFiles and respects absences
+ok 16 - WireGuard executable discovery prefers ProgramFiles and respects absences
+  ---
+  duration_ms: 1.805777
+  type: 'test'
+  ...
+# Subtest: PowerShell arguments correctly escape apostrophes in Windows profile
+ok 17 - PowerShell arguments correctly escape apostrophes in Windows profile
+  ---
+  duration_ms: 0.354843
+  type: 'test'
+  ...
+# Subtest: VPN activation requires approved existing config and invokes elevation
+ok 18 - VPN activation requires approved existing config and invokes elevation
+  ---
+  duration_ms: 2.178259
+  type: 'test'
+  ...
+1..18
+# tests 18
+# suites 0
+# pass 18
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 905.383408

@@ -1,0 +1,177 @@
+TAP version 13
+# Subtest: Provision Windows and operator peers + revoke via authenticated API
+ok 1 - Provision Windows and operator peers + revoke via authenticated API
+  ---
+  duration_ms: 242.658983
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: embedded Windows API uses separate operator and local-viewer endpoints
+ok 2 - embedded Windows API uses separate operator and local-viewer endpoints
+  ---
+  duration_ms: 149.345212
+  type: 'test'
+  ...
+# Subtest: LiveKit local Twirp API moderation and JWT permissions
+ok 3 - LiveKit local Twirp API moderation and JWT permissions
+  ---
+  duration_ms: 10.982075
+  type: 'test'
+  ...
+# Subtest: Twirp control does not accept remote endpoints
+ok 4 - Twirp control does not accept remote endpoints
+  ---
+  duration_ms: 0.645128
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: presence and revocation immediately disconnect active streaming operators
+ok 5 - presence and revocation immediately disconnect active streaming operators
+  ---
+  duration_ms: 786.762339
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: allow provisioned WireGuard addresses only, reject spoofed/unrelated IPs
+ok 6 - allow provisioned WireGuard addresses only, reject spoofed/unrelated IPs
+  ---
+  duration_ms: 3.733863
+  type: 'test'
+  ...
+# Subtest: VPN mode denies operator authorization over loopback/LAN but keeps local admin usable
+ok 7 - VPN mode denies operator authorization over loopback/LAN but keeps local admin usable
+  ---
+  duration_ms: 362.821974
+  type: 'test'
+  ...
+# Universal Stream API listening on http://127.0.0.1:0
+# Subtest: Windows-local test publisher is authenticated, short-lived, screen-only and requires room
+ok 8 - Windows-local test publisher is authenticated, short-lived, screen-only and requires room
+  ---
+  duration_ms: 448.451222
+  type: 'test'
+  ...
+# Subtest: admin authentication and operator flow
+ok 9 - admin authentication and operator flow
+  ---
+  duration_ms: 405.937337
+  type: 'test'
+  ...
+# Subtest: preflight verifies free TCP and UDP ports
+ok 10 - preflight verifies free TCP and UDP ports
+  ---
+  duration_ms: 79.131994
+  type: 'test'
+  ...
+# Subtest: preflight catches a TCP port conflict
+ok 11 - preflight catches a TCP port conflict
+  ---
+  duration_ms: 24.135594
+  type: 'test'
+  ...
+# Subtest: preflight catches a UDP port conflict
+ok 12 - preflight catches a UDP port conflict
+  ---
+  duration_ms: 2.347123
+  type: 'test'
+  ...
+# Subtest: publishes screen share test pattern and counts only matching received video frame
+ok 13 - publishes screen share test pattern and counts only matching received video frame
+  ---
+  duration_ms: 1.856234
+  type: 'test'
+  ...
+# Subtest: missing video frame times out with diagnostic rather than false success
+ok 14 - missing video frame times out with diagnostic rather than false success
+  ---
+  duration_ms: 2.733758
+  type: 'test'
+  ...
+# Subtest: invalid or duplicate runs are rejected
+ok 15 - invalid or duplicate runs are rejected
+  ---
+  duration_ms: 0.719888
+  type: 'test'
+  ...
+# Subtest: canvas generator draws moving frames, cleans timer and stops capture track
+ok 16 - canvas generator draws moving frames, cleans timer and stops capture track
+  ---
+  duration_ms: 29.622118
+  type: 'test'
+  ...
+# Subtest: early viewer frame does not get overwritten by late publish acknowledgement
+ok 17 - early viewer frame does not get overwritten by late publish acknowledgement
+  ---
+  duration_ms: 0.787852
+  type: 'test'
+  ...
+# Subtest: retry uses capped exponential backoff
+ok 18 - retry uses capped exponential backoff
+  ---
+  duration_ms: 12.70927
+  type: 'test'
+  ...
+# Subtest: schedules only one retry per disconnect and carries selected room
+ok 19 - schedules only one retry per disconnect and carries selected room
+  ---
+  duration_ms: 2.200399
+  type: 'test'
+  ...
+# Subtest: room switch cancels scheduled reconnection
+ok 20 - room switch cancels scheduled reconnection
+  ---
+  duration_ms: 4.573237
+  type: 'test'
+  ...
+# Subtest: Windows provisioning: enroll hub/operator, persist encrypted relay token, revoke
+ok 21 - Windows provisioning: enroll hub/operator, persist encrypted relay token, revoke
+  ---
+  duration_ms: 64.141974
+  type: 'test'
+  ...
+# Subtest: WireGuard x25519 keypair and operator enrollment code
+ok 22 - WireGuard x25519 keypair and operator enrollment code
+  ---
+  duration_ms: 5.385646
+  type: 'test'
+  ...
+# Subtest: Reject malformed key and endpoint
+ok 23 - Reject malformed key and endpoint
+  ---
+  duration_ms: 2.882391
+  type: 'test'
+  ...
+# Subtest: WireGuard executable discovery prefers ProgramFiles and respects absences
+ok 24 - WireGuard executable discovery prefers ProgramFiles and respects absences
+  ---
+  duration_ms: 3.549045
+  type: 'test'
+  ...
+# Subtest: PowerShell arguments correctly escape apostrophes in Windows profile
+ok 25 - PowerShell arguments correctly escape apostrophes in Windows profile
+  ---
+  duration_ms: 1.28294
+  type: 'test'
+  ...
+# Subtest: VPN activation requires approved existing config and invokes elevation
+ok 26 - VPN activation requires approved existing config and invokes elevation
+  ---
+  duration_ms: 5.558003
+  type: 'test'
+  ...
+1..26
+# tests 26
+# suites 0
+# pass 26
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4300.452833
+Android XML: OK
+
+Note: this is NOT an EXE/APK build or a real streaming/VPN test.
+
+Kotlin quality profiles: 7 checks passed
+Node/Vite dependency installation: unavailable (npm registry DNS EAI_AGAIN)
+EXE/APK and on-device video: not verified

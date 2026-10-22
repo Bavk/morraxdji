@@ -1,0 +1,13 @@
+Universal Stream Control v0.10 — локальная проверка исходников (2026-10-22)
+
+Node.js 22: RUN_TESTS.sh => 41 tests, 41 passed, 0 failed.
+JavaScript node --check: passed.
+Bash bash -n: passed.
+Android XML parse (ElementTree): passed.
+Kotlin standalone StreamProfile.kt + StreamProfileTest.kt: 7 checks passed.
+Source audit: 17 required files and packaged server MJS graph verified.
+GitHub Actions YAML: syntax parsed, 3 job definitions (not executed).
+
+NOT TESTED: EXE installer, APK build via Gradle/Android SDK, Docker Desktop,
+LiveKit self-test on Windows, real Android screen capture, WireGuard handshake,
+CG-NAT throughput, multiple real video streams.

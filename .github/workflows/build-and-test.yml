@@ -1,0 +1,129 @@
+# Installers are unsigned; artifacts include SHA256 checksums.
+name: Build Universal Stream Control EXE and APK
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  node-tests:
+    name: Server, VPN and desktop logic tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run offline Node tests and source checks
+        run: bash RUN_TESTS.sh
+      - name: Check source package layout and repository safety
+        run: |
+          node scripts/source-audit.mjs
+          node scripts/repo-safety.mjs
+  windows-build:
+    name: Unsigned Windows NSIS installer
+    runs-on: windows-2022
+    needs: node-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Electron dependencies
+        working-directory: windows
+        shell: pwsh
+        run: |
+          if (Test-Path package-lock.json) {
+            npm ci --no-audit --no-fund
+          } else {
+            Write-Host 'No package-lock.json yet. Use npm install for the FIRST build.'
+            npm install --no-audit --no-fund
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'npm dependency installation failed' }
+      - name: Build desktop UI
+        working-directory: windows
+        run: npm run build:ui
+      - name: Smoke test real Electron renderer and preload
+        working-directory: windows
+        run: npm run smoke:ui
+      - name: Package unsigned EXE
+        working-directory: windows
+        run: npm run dist:win
+      - name: Check Windows installer format
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem windows/release/*.exe -ErrorAction Stop)
+          if ($files.Count -eq 0) { throw 'No installer produced' }
+          foreach ($file in $files) {
+            if ($file.Length -lt 1MB) { throw "Installer unexpectedly small: $($file.Name)" }
+            $stream = [System.IO.File]::OpenRead($file.FullName)
+            try {
+              if ($stream.ReadByte() -ne 0x4D -or $stream.ReadByte() -ne 0x5A) { throw 'Missing PE MZ header' }
+            } finally { $stream.Dispose() }
+          }
+      - name: Verify packaged LiveKit API sources
+        shell: pwsh
+        run: |
+          $resourceDir = 'windows/release/win-unpacked/resources/server'
+          foreach ($source in @('server.mjs','livekit-admin.mjs','operator-network.mjs','revoked-reconciler.mjs','pending-deletions.mjs')) {
+            if (-not (Test-Path (Join-Path $resourceDir $source))) { throw "Missing packaged API file: $source" }
+          }
+      - name: Create SHA256 checksums for Windows installer
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem windows/release/*.exe -ErrorAction Stop)
+          $hashes = @($files | ForEach-Object { "$( (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() )  $($_.Name)" })
+          $hashes | Set-Content -Path windows/release/SHA256SUMS.txt -Encoding ascii
+          "### Windows EXE built and hashed ($($files.Count) installer)" >> $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: universal-stream-windows-unsigned
+          path: |
+            windows/release/*.exe
+            windows/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+  android-build:
+    name: Android debug APK
+    runs-on: ubuntu-24.04
+    needs: node-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 35
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compile debug APK
+        working-directory: android
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Verify Android APK package and debug signature
+        working-directory: android
+        shell: bash
+        run: |
+          apk=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | grep "package: name='com.universalstream.operator'"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+      - name: Create SHA256 checksums for Android APK
+        working-directory: android/app/build/outputs/apk/debug
+        run: |
+          sha256sum ./*.apk > SHA256SUMS.txt
+          echo '### Android debug APK built, verified and hashed' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: universal-stream-operator-debug-apk
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/debug/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30

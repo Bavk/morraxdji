@@ -1,0 +1,338 @@
+package com.universalstream.operator
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
+import android.net.VpnService
+import android.os.Bundle
+import android.util.Base64
+import android.widget.Button
+import android.widget.EditText
+import android.widget.Spinner
+import android.widget.TextView
+import android.view.View
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
+import com.wireguard.android.backend.GoBackend
+import com.wireguard.android.backend.Tunnel
+import com.wireguard.config.Config
+import io.livekit.android.LiveKit
+import io.livekit.android.events.RoomEvent
+import io.livekit.android.events.collect
+import io.livekit.android.room.Room
+import io.livekit.android.room.track.LocalVideoTrackOptions
+import io.livekit.android.room.track.VideoCaptureParameter
+import io.livekit.android.room.track.VideoEncoding
+import io.livekit.android.room.participant.VideoTrackPublishDefaults
+import io.livekit.android.room.track.screencapture.ScreenCaptureParams
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+
+private class SessionHttpException(val status:Int, message:String):IOException(message)
+
+private object StreamState {
+    var room: Room? = null
+    var vpnEnabled: Boolean = false
+}
+
+// No raw WireGuard configuration is accepted from an untrusted enrollment code.
+// The APK constructs a split tunnel to the Windows host only.
+internal data class Enrollment(val operatorKey:String,val ip:String,val privateKey:String,val relayKey:String,val endpoint:String) {
+    companion object {
+        fun parse(code:String):Enrollment {
+            require(code.startsWith("USCV1.") && code.length in 80..2500) { "Ожидается код USCV1 из Windows-приложения" }
+            val raw=Base64.decode(code.removePrefix("USCV1."),Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+            val json=JSONObject(String(raw,Charsets.UTF_8))
+            require(json.getInt("v")==1) { "Неподдерживаемая версия кода" }
+            val key=json.getString("key")
+            val ip=json.getString("ip")
+            val privateKey=json.getString("privateKey")
+            val relayKey=json.getString("relayKey")
+            val endpoint=json.getString("endpoint")
+            require(Regex("STRM_[A-Za-z0-9_-]{32}").matches(key)) { "Неверный ключ оператора" }
+            require(Regex("10\\.77\\.0\\.(1\\d\\d|2[0-3]\\d|240)").matches(ip)) { "Недопустимый VPN-адрес" }
+            for(k in listOf(privateKey,relayKey)) {
+                require(Regex("[A-Za-z0-9+/]{43}=").matches(k) && Base64.decode(k,Base64.DEFAULT).size==32) { "Некорректный ключ WireGuard" }
+            }
+            require(Regex("[A-Za-z0-9.-]{3,253}:[0-9]{1,5}").matches(endpoint)) { "Неверный адрес ретранслятора" }
+            require((endpoint.substringAfter(':').toIntOrNull() ?: 0) in 1..65535) { "Недопустимый VPN-порт" }
+            return Enrollment(key,ip,privateKey,relayKey,endpoint)
+        }
+    }
+    fun wgConfig():Config {
+        val config="""
+            [Interface]
+            PrivateKey = $privateKey
+            Address = $ip/32
+
+            [Peer]
+            PublicKey = $relayKey
+            Endpoint = $endpoint
+            AllowedIPs = 10.77.0.1/32
+            PersistentKeepalive = 25
+        """.trimIndent()
+        return Config.parse(ByteArrayInputStream(config.toByteArray(Charsets.UTF_8)))
+    }
+}
+
+class MainActivity:ComponentActivity() {
+    private lateinit var inviteInput:EditText
+    private lateinit var address:EditText
+    private lateinit var status:TextView
+    private lateinit var quality:Spinner
+    private lateinit var start:Button
+    private lateinit var stop:Button
+    private lateinit var store:InviteStore
+    private val wg by lazy { GoBackend(applicationContext) }
+    private val tunnel=object:Tunnel {
+        override fun getName():String="usc-operator"
+        override fun onStateChange(newState:Tunnel.State) { }
+    }
+    private var pending:Enrollment?=null
+    private var pendingVpnEpoch=0
+    private var stopping=false
+    private var currentCode:String?=null
+    private var roomEventsJob:Job?=null
+    // Invalidate asynchronous API/WebRTC handshakes if the operator stops streaming.
+    private var sessionEpoch=0
+    private var captureEpoch=-1
+
+    private val vpnLauncher=registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val enrollment=pending;pending=null
+        if(pendingVpnEpoch!=sessionEpoch)return@registerForActivityResult
+        if(result.resultCode != Activity.RESULT_OK || enrollment==null){
+            setStatus("Разрешение Android на VPN отклонено")
+            start.isEnabled=true;stop.isEnabled=false
+        }else connectVpn(enrollment,pendingVpnEpoch)
+    }
+    private val captureLauncher=registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        // Ignore a system permission response arriving after Stop or a new connection attempt.
+        val attempt=captureEpoch
+        captureEpoch=-1
+        if(attempt!=sessionEpoch || stopping || StreamState.room==null)return@registerForActivityResult
+        if(result.resultCode!=Activity.RESULT_OK||result.data==null){
+            setStatus("Захват экрана не разрешён")
+            stopSession()
+            return@registerForActivityResult
+        }
+        lifecycleScope.launch {
+            try {
+                if(attempt!=sessionEpoch || stopping)return@launch
+                val room=StreamState.room?:error("Нет соединения с Windows")
+                val resultOk=room.localParticipant.setScreenShareEnabled(true,ScreenCaptureParams(result.data!!,onStop={
+                    runOnUiThread {
+                        if(!stopping && StreamState.room!=null) {
+                            setStatus("Android остановил захват экрана. Отключение…")
+                            stopSession()
+                        }
+                    }
+                }))
+                if(attempt!=sessionEpoch || stopping){
+                    try{room.localParticipant.setScreenShareEnabled(false)}catch(_:Exception){}
+                    return@launch
+                }
+                if(!resultOk)error("Не удалось начать захват")
+                start.isEnabled=false;stop.isEnabled=true
+                setStatus("● В ЭФИРЕ — можно открыть приложение пульта")
+            }catch(e:Exception){
+                if(attempt==sessionEpoch && !stopping){setStatus("Ошибка захвата: ${e.message}");stopSession()}
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState:Bundle?){
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        inviteInput=findViewById(R.id.operatorKey)
+        address=findViewById(R.id.serverAddress)
+        findViewById<View>(R.id.lanDebugContainer).visibility=if(BuildConfig.DEBUG) View.VISIBLE else View.GONE
+        status=findViewById(R.id.statusText)
+        quality=findViewById(R.id.qualitySpinner)
+        quality.setSelection(getSharedPreferences("operator",MODE_PRIVATE).getInt("quality_index",1))
+        start=findViewById(R.id.startButton)
+        findViewById<Button>(R.id.pasteButton).setOnClickListener {
+            val clipboard=getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val item=clipboard.primaryClip?.takeIf{it.itemCount>0}?.getItemAt(0)
+            val value=item?.coerceToText(this)?.toString()?.trim().orEmpty()
+            if(value.startsWith("USCV1.") && value.length <= 2500){
+                inviteInput.setText(value)
+                setStatus("Код вставлен. Нажмите «Начать трансляцию»")
+            }else setStatus("Буфер обмена не содержит подходящего кода USCV1")
+        }
+        stop=findViewById(R.id.stopButton)
+        store=InviteStore(this)
+        inviteInput.setText(store.load().orEmpty())
+        address.setText(getSharedPreferences("operator",MODE_PRIVATE).getString("api_url",""))
+        if(StreamState.room!=null){start.isEnabled=false;stop.isEnabled=true;setStatus("Сеанс активен")}
+        start.setOnClickListener {
+            stopping=false
+            val attempt=++sessionEpoch
+            val code=inviteInput.text.toString().trim()
+            getSharedPreferences("operator",MODE_PRIVATE).edit()
+                .putInt("quality_index",quality.selectedItemPosition).apply()
+            start.isEnabled=false;stop.isEnabled=true
+            if(code.startsWith("USCV1.")) {
+                try {
+                    val enrollment=Enrollment.parse(code)
+                    currentCode=code
+                    val permission=VpnService.prepare(this)
+                    if(permission!=null){pending=enrollment;pendingVpnEpoch=attempt;vpnLauncher.launch(permission)}
+                    else connectVpn(enrollment,attempt)
+                }catch(e:Exception){start.isEnabled=true;stop.isEnabled=false;setStatus("Ошибка кода: ${e.message}")}
+            }else{
+                // Legacy LAN test mode is debug-only; remote access must use VPN.
+                val api=address.text.toString().trim().trimEnd('/')
+                if(!BuildConfig.DEBUG || !api.startsWith("http://")){
+                    start.isEnabled=true;stop.isEnabled=false;setStatus("Вставьте код USCV1 из Windows-приложения")
+                }else {
+                    getSharedPreferences("operator",MODE_PRIVATE).edit().putString("api_url",api).apply()
+                    connectStream(api,code,attempt)
+                }
+            }
+        }
+        stop.setOnClickListener {stopSession()}
+    }
+    private fun setStatus(value:String){status.text=value}
+    private fun connectVpn(enrollment:Enrollment,attempt:Int){
+        stopping=false
+        start.isEnabled=false
+        setStatus("Подключение защищённого VPN…")
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO){wg.setState(tunnel,Tunnel.State.UP,enrollment.wgConfig())}
+                // The operator can cancel while VPN negotiation is in progress.
+                if(attempt!=sessionEpoch){
+                    withContext(Dispatchers.IO){try{wg.setState(tunnel,Tunnel.State.DOWN,null)}catch(_:Exception){}}
+                    return@launch
+                }
+                StreamState.vpnEnabled=true
+                connectStream("http://10.77.0.1:3100",enrollment.operatorKey,attempt)
+            }catch(e:Exception){
+                if(attempt!=sessionEpoch)return@launch
+                setStatus("VPN не подключён: ${e.message}")
+                withContext(Dispatchers.IO){try{wg.setState(tunnel,Tunnel.State.DOWN,null)}catch(_:Exception){}}
+                start.isEnabled=true;stop.isEnabled=false
+            }
+        }
+    }
+    private fun connectStream(api:String,operatorKey:String,attempt:Int){
+        if(attempt!=sessionEpoch)return
+        start.isEnabled=false
+        setStatus("Подключение к Windows…")
+        lifecycleScope.launch {
+            var current:Room?=null
+            try {
+                val session=withContext(Dispatchers.IO){
+                    var last:Exception?=null
+                    repeat(5){index->
+                        try{return@withContext obtainSession(api,operatorKey)}catch(e:Exception){
+                            // A revoked/malformed key is permanent: do not retry authorization.
+                            if(e is SessionHttpException && e.status in 400..499) throw e
+                            last=e
+                            if(index<4)delay((1000L shl index).coerceAtMost(8000L))
+                        }
+                    }
+                    throw(last?:IOException("Сервер недоступен"))
+                }
+                if(attempt!=sessionEpoch)return@launch
+                current=LiveKit.create(applicationContext)
+                // Apply the operator-selected encoding before MediaProjection is created.
+                val profile=StreamProfile.fromIndex(
+                    getSharedPreferences("operator",MODE_PRIVATE).getInt("quality_index",1))
+                current?.screenShareTrackCaptureDefaults=LocalVideoTrackOptions(
+                    isScreencast=true,
+                    // Do not crop portrait or non-16:9 controller displays to a 16:9 canvas.
+                    // Preserve the full visible screen (especially telemetry/status bars).
+                    captureParams=VideoCaptureParameter(profile.width,profile.height,profile.fps,
+                        adaptOutputToDimensions=false))
+                current?.screenShareTrackPublishDefaults=VideoTrackPublishDefaults(
+                    videoEncoding=VideoEncoding(profile.maxBitrate,profile.fps),simulcast=false)
+                val connectedRoom=current ?: error("Не удалось создать LiveKit Room")
+                roomEventsJob?.cancel()
+                roomEventsJob=launch {
+                    connectedRoom.events.collect { event ->
+                        if(StreamState.room===connectedRoom) {
+                            when(event) {
+                                is RoomEvent.Reconnecting -> setStatus("Переподключение к видеосерверу…")
+                                is RoomEvent.Reconnected -> setStatus("● Соединение восстановлено — экран транслируется")
+                                is RoomEvent.Disconnected -> if(!stopping) {
+                                    setStatus("Соединение потеряно. Трансляция остановлена")
+                                    stopSession()
+                                }
+                                else -> Unit
+                            }
+                        }
+                    }
+                }
+                connectedRoom.connect(session.getString("wsUrl"),session.getString("token"))
+                if(attempt!=sessionEpoch){connectedRoom.disconnect();connectedRoom.release();return@launch}
+                StreamState.room=connectedRoom
+                currentCode?.let { store.save(it) }
+                currentCode=null
+                stop.isEnabled=true
+                setStatus("Подключён к ${session.getString("roomName")}. Качество: ${profile.width}×${profile.height}, ${profile.fps} FPS. Разрешите захват экрана")
+                val projection=getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                captureEpoch=attempt
+                captureLauncher.launch(projection.createScreenCaptureIntent())
+            }catch(e:Exception){
+                if(attempt!=sessionEpoch){current?.disconnect();current?.release();return@launch}
+                roomEventsJob?.cancel();roomEventsJob=null
+                current?.disconnect();current?.release()
+                StreamState.room=null
+                if(StreamState.vpnEnabled){
+                    withContext(Dispatchers.IO){try{wg.setState(tunnel,Tunnel.State.DOWN,null)}catch(_:Exception){}}
+                    StreamState.vpnEnabled=false
+                }
+                start.isEnabled=true;stop.isEnabled=false
+                setStatus("Нет соединения: ${e.message}")
+            }
+        }
+    }
+    private fun stopSession(){
+        if(stopping)return
+        stopping=true
+        sessionEpoch++
+        captureEpoch=-1
+        pending=null
+        currentCode=null
+        roomEventsJob?.cancel();roomEventsJob=null
+        val current=StreamState.room;StreamState.room=null
+        lifecycleScope.launch {
+            try{current?.localParticipant?.setScreenShareEnabled(false)}catch(_:Exception){}
+            try{current?.disconnect();current?.release()}catch(_:Exception){}
+            if(StreamState.vpnEnabled){
+                withContext(Dispatchers.IO){try{wg.setState(tunnel,Tunnel.State.DOWN,null)}catch(_:Exception){}}
+                StreamState.vpnEnabled=false
+            }
+            start.isEnabled=true;stop.isEnabled=false;setStatus("Трансляция остановлена")
+            stopping=false
+        }
+    }
+    private fun obtainSession(api:String,operatorKey:String):JSONObject {
+        val connection=URL("$api/api/operator/session").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod="POST"
+            connection.connectTimeout=3500
+            connection.readTimeout=7000
+            connection.setRequestProperty("Content-Type","application/json; charset=utf-8")
+            connection.doOutput=true
+            val payload=JSONObject().put("key",operatorKey).toString()
+            connection.outputStream.use{it.write(payload.toByteArray(Charsets.UTF_8))}
+            val code=connection.responseCode
+            val body=(if(code in 200..299)connection.inputStream else connection.errorStream)
+                ?.bufferedReader(Charsets.UTF_8)?.use{it.readText()}.orEmpty()
+            if(code !in 200..299)throw SessionHttpException(code,"HTTP $code: ${body.take(180)}")
+            return JSONObject(body)
+        }finally{connection.disconnect()}
+    }
+}

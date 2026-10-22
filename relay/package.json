@@ -1,0 +1,13 @@
+{
+  "name": "universal-stream-relay",
+  "type": "module",
+  "private": true,
+  "version": "0.10.0",
+  "scripts": {
+    "start": "node relay.mjs",
+    "test": "node --test relay.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
