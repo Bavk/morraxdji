@@ -49,6 +49,7 @@ app.whenReady().then(async()=>{
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length===2 && [...document.querySelectorAll('.tile video')].every(v=>v.videoWidth>0 && v.readyState>=2 && v.getVideoPlaybackQuality().totalVideoFrames>=3)"),'two decoded video streams');
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.wall-room-state.connected').length"),2);
  assert.equal(await viewer.webContents.executeJavaScript("getComputedStyle(document.querySelector('#placeholder')).display"),'none');
+ await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  fs.mkdirSync(path.join(__dirname,'release'),{recursive:true});
  fs.writeFileSync(path.join(__dirname,'release/wall-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
  await viewer.webContents.executeJavaScript("document.querySelector('.focus-button').click()");
