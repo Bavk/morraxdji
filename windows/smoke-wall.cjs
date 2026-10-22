@@ -27,6 +27,7 @@ const archive=new RecordingArchive(path.join(dir,'recordings-index.json'));
 const revealed=[];let importSelection=[];
 app.setPath('userData',dir);app.disableHardwareAcceleration();
 app.on('window-all-closed',()=>{});
+let delayedSelection=false,releaseSelection;
 let api,viewer,publisher;const native=new NativeLiveKit(binaryPath());
 async function until(check,label,timeout=30000){
  const end=Date.now()+timeout;while(Date.now()<end){if(await check())return;await new Promise(r=>setTimeout(r,150));}throw Error('Timeout: '+label);
@@ -66,7 +67,7 @@ app.whenReady().then(async()=>{
  ipcMain.handle('room:list',()=>call('/api/admin/rooms'));
  ipcMain.handle('room:view',(_,id)=>call(`/api/admin/rooms/${id}/viewer`,'POST',{}));
  ipcMain.handle('room:presence',(_,id)=>call(`/api/admin/rooms/${id}/presence`));
- ipcMain.handle('recording:begin',async(event,label)=>{const file=path.join(dir,`test-recording-${++recordingIndex}.webm`);const space=await prepareRecordingSpace(file,{confirmLow:async()=>true});return {...await recordingStore.begin(event.sender.id,file,{label}),freeBytesAtStart:space.freeBytes};});
+ ipcMain.handle('recording:begin',async(event,label)=>{if(delayedSelection)return new Promise(resolve=>{releaseSelection=()=>resolve({canceled:true});});const file=path.join(dir,`test-recording-${++recordingIndex}.webm`);const space=await prepareRecordingSpace(file,{confirmLow:async()=>true});return {...await recordingStore.begin(event.sender.id,file,{label}),freeBytesAtStart:space.freeBytes};});
  ipcMain.handle('snapshot:save',async(_,label,png)=>{
   snapshotAttempts++;if(cancelNextSnapshot){cancelNextSnapshot=false;return {canceled:true};}
   if(snapshotDelayMs)await new Promise(resolve=>setTimeout(resolve,snapshotDelayMs));
@@ -392,5 +393,15 @@ app.whenReady().then(async()=>{
  assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===6,'final chunk saved before window closes');await verifyRecording(savedRecordings[5]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate, live room rename preserves tracks/recordings/search, live operator rename preserves credentials/tracks/recordings/search, favorites filter/recording/reveal/reload/reconnect, timed invite clipboard cleanup preserves unrelated text');
+ viewer=new BrowserWindow({show:false,width:1600,height:1000,webPreferences:{preload:path.join(__dirname,'preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+ await viewer.loadFile(path.join(__dirname,'dist/index.html'));
+ await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('#allControllers'))"),'viewer for pending file selection');
+ await viewer.webContents.executeJavaScript("document.querySelector('#allControllers').click()");
+ await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('.record-button'))"),'source before pending selection close');
+ delayedSelection=true;await viewer.webContents.executeJavaScript("document.querySelector('.record-button').click()");
+ await until(()=>typeof releaseSelection==='function','pending file selection IPC');
+ let pendingViewerClosed=false;const selectionClosed=new Promise(resolve=>viewer.once('closed',()=>{pendingViewerClosed=true;resolve();}));
+ viewer.close();await new Promise(resolve=>setTimeout(resolve,300));assert.equal(pendingViewerClosed,false,'close waits for pending selection');
+ releaseSelection();await selectionClosed;assert.equal(recordingStore.sessions.size,0);assert.equal(savedRecordings.length,6);
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate, live room rename preserves tracks/recordings/search, live operator rename preserves credentials/tracks/recordings/search, favorites filter/recording/reveal/reload/reconnect, timed invite clipboard cleanup preserves unrelated text, window close waits for pending recording file selection');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

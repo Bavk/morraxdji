@@ -18,7 +18,17 @@ test('canceling file selection never starts recording or writes bytes',async()=>
  const h=setup({beginRecording:async()=>({canceled:true})});assert.equal(await h.recorder.start('FPV'),false);assert.deepEqual(h.calls,[]);assert.equal(h.cloneStopped,false);
 });
 test('source removal during file selection cancels a late selection',async()=>{
- let select;const h=setup({beginRecording:()=>new Promise(resolve=>select=resolve)});const start=h.recorder.start('FPV');await h.recorder.stop();select({id:'id'});assert.equal(await start,false);assert.deepEqual(h.calls,[['finish']]);assert.equal(h.cloneStopped,false);
+ let select;const h=setup({beginRecording:()=>new Promise(resolve=>select=resolve)});const start=h.recorder.start('FPV');const stop=h.recorder.stop();select({id:'id'});assert.equal(await start,false);await stop;assert.deepEqual(h.calls,[['finish']]);assert.equal(h.cloneStopped,false);
+});
+
+test('stop during file selection waits for late file cleanup and remains idempotent',async()=>{
+ let select,finish;const h=setup({beginRecording:()=>new Promise(resolve=>select=resolve),finishRecording:()=>new Promise(resolve=>finish=resolve)});
+ const starting=h.recorder.start('FPV');const stopping=h.recorder.stop();assert.equal(h.recorder.stop(),stopping);let closed=false;stopping.then(()=>closed=true);
+ await Promise.resolve();assert.equal(closed,false);select({id:'late-file'});await new Promise(r=>setTimeout(r,0));assert.equal(closed,false);assert.equal(h.recorder.clone,undefined);
+ finish({saved:false});assert.equal(await starting,false);await stopping;assert.equal(closed,true);assert.equal(h.recorder.state,'done');assert.equal(h.states.at(-1)[0],'canceled');
+});
+test('cancel and failed selection release pending stop without starting MediaRecorder',async()=>{
+ for(const failure of [false,true]){let resolve,reject;const h=setup({beginRecording:()=>new Promise((ok,no)=>{resolve=ok;reject=no;})});const starting=h.recorder.start('FPV').catch(()=>false);const stopping=h.recorder.stop();if(failure)reject(Error('dialog failed'));else resolve({canceled:true});await starting;await stopping;assert.equal(h.recorder.state,'done');assert.equal(h.recorder.clone,undefined);}
 });
 test('failed disk write stops recorder and closes file without claiming success',async()=>{
  const h=setup({appendRecording:async()=>{throw Error('disk full');}});await h.recorder.start('FPV');h.media.ondataavailable({data:new Blob(['first'])});await h.recorder.tail;await h.recorder.stop();assert.equal(h.states.some(([s])=>s==='saved'),false);assert.equal(h.states.some(([s])=>s==='error'),true);assert.equal(h.calls.at(-1)[0],'finish');

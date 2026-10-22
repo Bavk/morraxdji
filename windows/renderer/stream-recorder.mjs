@@ -23,6 +23,9 @@ export class StreamRecorder {
    this.error=error;this.clone?.stop();
    if(this.id)await this.api.finishRecording(this.id).catch(()=>{});
    this.state='done';this.onState('error',error);throw error;
+  }finally{
+   // stop() during the save dialog must wait for its result and late-file cleanup.
+   if(this.state==='done')this.resolveStop?.();
   }
  }
  enqueue(blob){
@@ -39,7 +42,10 @@ export class StreamRecorder {
  stop(){
   if(this.stopPromise)return this.stopPromise;
   this.cancelRequested=true;
-  if(this.state==='choosing')return Promise.resolve();
+  if(this.state==='choosing'){
+   this.stopPromise=new Promise(resolve=>this.resolveStop=resolve);
+   return this.stopPromise;
+  }
   if(this.state==='idle'||this.state==='done')return Promise.resolve();
   this.stopPromise=new Promise(resolve=>this.resolveStop=resolve);
   this.state='stopping';this.onState(this.state);
