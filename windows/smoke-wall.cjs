@@ -154,6 +154,7 @@ app.whenReady().then(async()=>{
  assert.deepEqual(JSON.parse(fs.readFileSync(exportedEvents)).events,eventLog.list());
  assert.deepEqual(new EventLog(path.join(dir,'event-log.json')).list(),eventLog.list());
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length"),1);
+ await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  fs.writeFileSync(path.join(__dirname,'release/events-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
  await viewer.webContents.executeJavaScript("document.querySelector('.event-close').click()");
  await viewer.webContents.executeJavaScript("document.querySelector('[data-room]').click()");
