@@ -6,4 +6,15 @@
 
 **Первое испытание на оборудовании:** [FIRST_REAL_RUN_RU.md](FIRST_REAL_RUN_RU.md).
 
-> Status: source-code prototype. Passing unit tests does not confirm real Windows/Android builds or video/VPN operation.
+## Готовые сборки v0.15
+
+GitHub Actions успешно собрал обе платформы: [запуск 39762576657](https://github.com/Bavk/morraxdji/actions/runs/39762576657).
+
+- [Windows EXE — NSIS установщик](https://github.com/Bavk/morraxdji/actions/runs/39762576657/artifacts/12417794612)
+- [Android APK со встроенным WireGuard](https://github.com/Bavk/morraxdji/actions/runs/39762576657/artifacts/12418312661)
+
+Артефакты скачиваются как ZIP вместе с SHA256SUMS.txt; для скачивания может потребоваться вход в GitHub. Срок хранения — 30 дней. Новая сборка запускается при push в main или вручную через Actions.
+
+EXE без цифровой подписи, APK подписан отладочным ключом. Windows одновременно запускает локальный видеосервер и просмотр; для работы сервера нужны Docker Desktop и WireGuard для Windows. Для подключения через интернет требуется настроенный VPN-ретранслятор. На Android WireGuard встроен в APK, отдельное приложение не требуется.
+
+Проверены 63 автоматических теста, запуск интерфейса Electron, упаковка серверных модулей, формат EXE, пакет и подпись APK, контрольные суммы и наличие нативных библиотек WireGuard для четырёх архитектур. Перед эксплуатацией требуется испытание трансляции и VPN на реальных пультах: [результаты сборки](BUILD_RESULTS_v0.15.md).
