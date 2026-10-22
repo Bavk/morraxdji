@@ -234,6 +234,7 @@ ipcMain.handle('events:export',async event=>{
  const result=await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender),{title:'Экспортировать журнал (выберите новый файл)',defaultPath:'USC_events_'+Date.now()+'.json',filters:[{name:'Журнал JSON',extensions:['json']}]});
  if(result.canceled||!result.filePath)return {saved:false};return eventLog().export(result.filePath);
 });
+ipcMain.handle('archive:update',(_,id,metadata)=>recordingArchive().updateMetadata(id,metadata));
 ipcMain.handle('archive:list',()=>recordingArchive().list());
 ipcMain.handle('archive:play',(_,id)=>recordingArchive().playback(id));
 ipcMain.handle('archive:reveal',async(_,id)=>{shell.showItemInFolder(await recordingArchive().revealPath(id));return {shown:true};});

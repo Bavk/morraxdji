@@ -76,7 +76,8 @@ app.whenReady().then(async()=>{
  ipcMain.handle('events:append',(_,kind,label)=>eventLog.append(kind,label));
  ipcMain.handle('events:list',()=>eventLog.list());
  ipcMain.handle('events:export',()=>eventLog.export(exportedEvents));
- ipcMain.handle('archive:list',()=>archive.list());
+ ipcMain.handle('archive:update',(_,id,metadata)=>archive.updateMetadata(id,metadata));
+ipcMain.handle('archive:list',()=>archive.list());
  ipcMain.handle('archive:play',(_,id)=>archive.playback(id));
  ipcMain.handle('archive:reveal',async(_,id)=>{revealed.push(await archive.revealPath(id));return {shown:true};});
  ipcMain.handle('archive:forget',(_,id)=>archive.forget(id));
@@ -308,6 +309,18 @@ app.whenReady().then(async()=>{
  await viewer.webContents.executeJavaScript("{const filter=document.querySelector('.archive-availability');filter.value='available';filter.dispatchEvent(new Event('change'));}");
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('#recordingArchive .archive-row').length"),2);
  await viewer.webContents.executeJavaScript("{const filter=document.querySelector('.archive-availability');filter.value='all';filter.dispatchEvent(new Event('change'));}");
+ const editedId=new URL(archivePlayback).hostname,originalRecording=await archive.get(editedId);
+ await viewer.webContents.executeJavaScript(`document.querySelector('[data-recording="${editedId}"] .archive-edit').click()`);
+ await until(()=>viewer.webContents.executeJavaScript("!!document.querySelector('#recordingMetadata[open]')"),'metadata editor opens');
+ await viewer.webContents.executeJavaScript("document.querySelector('#recordingLabel').value='Отмена';document.querySelector('.metadata-cancel').click()");assert.equal((await archive.get(editedId)).label,originalRecording.label);
+ await viewer.webContents.executeJavaScript(`document.querySelector('[data-recording="${editedId}"] .archive-edit').click();document.querySelector('#recordingLabel').value=${JSON.stringify(originalRecording.label+' — Разбор')};document.querySelector('#recordingNote').value='02:15 — проверка связи <b>текст</b>';document.querySelector('#recordingMetadata form').requestSubmit()`);
+ await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('#recordingMetadata')&&document.querySelector('.archive-playing-name').textContent.endsWith('— Разбор')"),'metadata saved without stopping player');
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('.archive-player video').src"),archivePlayback);assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('.archive-player video').paused"),false);
+ assert.equal((await archive.get(editedId)).filePath,originalRecording.filePath);
+ await viewer.webContents.executeJavaScript("{const input=document.querySelector('.archive-search');input.value='02:15';input.dispatchEvent(new Event('input'));}");
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('#recordingArchive .archive-row').length===1&&document.querySelector('.archive-note').textContent.includes('<b>текст</b>')"),'notes searchable and displayed as text');
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.archive-note b').length"),0);
+ assert.equal((await archive.get(editedId)).note,'02:15 — проверка связи <b>текст</b>');
  await viewer.webContents.executeJavaScript("document.querySelector('.archive-stop').click();const input=document.querySelector('.archive-search');input.value='Пульт A';input.dispatchEvent(new Event('input'))");
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.archive-row').length"),1);
  await viewer.webContents.executeJavaScript("document.querySelector('.archive-reveal').click()");await until(()=>revealed.length===1,'reveal known file');
@@ -428,5 +441,5 @@ app.whenReady().then(async()=>{
  let pendingViewerClosed=false;const selectionClosed=new Promise(resolve=>viewer.once('closed',()=>{pendingViewerClosed=true;resolve();}));
  viewer.close();await new Promise(resolve=>setTimeout(resolve,300));assert.equal(pendingViewerClosed,false,'close waits for pending selection');
  releaseSelection();await selectionClosed;assert.equal(recordingStore.sessions.size,0);assert.equal(savedRecordings.length,7);
- console.log('USC_WALL_SMOKE_PASS: opt-in stall sound/test/disable with silent audio mock, wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate, live room rename preserves tracks/recordings/search, live operator rename preserves credentials/tracks/recordings/search, favorites filter/recording/reveal/reload/reconnect, timed invite clipboard cleanup preserves unrelated text, window close waits for pending recording file selection, browser stop exception finalizes file/releases controls/reports error');
+ console.log('USC_WALL_SMOKE_PASS: archive title/notes edit/cancel/search/plain text preserves playback, opt-in stall sound/test/disable with silent audio mock, wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export, canceled/confirmed view switching and same-view no-op, receive controls immediately released after recording completion, keyboard order/filter/Escape/input/modal guards while recording, fresh wall summary/live/stale/paused/hidden recording bitrate, live room rename preserves tracks/recordings/search, live operator rename preserves credentials/tracks/recordings/search, favorites filter/recording/reveal/reload/reconnect, timed invite clipboard cleanup preserves unrelated text, window close waits for pending recording file selection, browser stop exception finalizes file/releases controls/reports error');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

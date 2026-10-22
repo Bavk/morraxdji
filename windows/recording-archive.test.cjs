@@ -27,3 +27,30 @@ test('custom protocol accepts known recording IDs only and rejects paths',()=>fi
  const entry=await archive.add({saved:true,filePath:await video(dir)});let handler;handleArchiveProtocol({handle:(name,fn)=>handler=fn},()=>archive);
  assert.equal((await handler(new Request(`usc-recording://${entry.id}/`,{method:'HEAD'}))).status,200);assert.equal((await handler(new Request(`usc-recording://${entry.id}/secret`))).status,404);assert.equal((await handler(new Request('usc-recording://invalid/'))).status,404);assert.equal((await handler(new Request(`usc-recording://${entry.id}/`,{method:'POST'}))).status,405);
 }));
+
+test('recording title and notes persist, preserve file and playback ID, and survive reimport',()=>fixture(async(dir,archive)=>{
+ const filePath=await video(dir),before=await fs.readFile(filePath),row=await archive.add({saved:true,filePath,label:'Пульт А'});
+ const result=await archive.updateMetadata(row.id,{label:'  Проверка связи  ',note:'  02:15 — смена канала\nПроверить антенну  ',filePath:'ignored.webm'});
+ assert.deepEqual(result,{id:row.id,label:'Проверка связи',note:'02:15 — смена канала\nПроверить антенну'});
+ const restored=new RecordingArchive(path.join(dir,'index.json'));let saved=await restored.get(row.id);assert.equal(saved.filePath,filePath);assert.equal(saved.createdAt,row.createdAt);assert.equal(saved.bytes,row.bytes);assert.deepEqual(await fs.readFile(filePath),before);
+ await restored.importFiles([filePath]);saved=(await restored.list())[0];assert.equal(saved.label,result.label);assert.equal(saved.note,result.note);assert.equal(saved.id,row.id);assert.equal((await restored.playback(row.id)).url,`usc-recording://${row.id}/`);
+}));
+test('old archives without notes still load and missing files can be annotated',()=>fixture(async(dir,archive)=>{
+ const row=await archive.add({saved:true,filePath:await video(dir),label:'Старое видео'});const old={...row};delete old.note;await fs.writeFile(path.join(dir,'index.json'),JSON.stringify({version:1,records:[old]}));await fs.unlink(row.filePath);
+ const restored=new RecordingArchive(path.join(dir,'index.json'));assert.equal((await restored.get(row.id)).note,'');await restored.updateMetadata(row.id,{label:'Найти файл',note:'Перенесён на внешний диск'});assert.equal((await restored.list())[0].available,false);
+}));
+test('invalid metadata or unknown recording cannot change the index',()=>fixture(async(dir,archive)=>{
+ const row=await archive.add({saved:true,filePath:await video(dir)}),before=await fs.readFile(path.join(dir,'index.json'),'utf8');
+ for(const data of [null,{}, {label:' ',note:''},{label:'x'.repeat(301),note:''},{label:'bad\nline',note:''},{label:'ok',note:3},{label:'ok',note:'x'.repeat(2001)},{label:'ok',note:'bad\0text'}])await assert.rejects(archive.updateMetadata(row.id,data));
+ await assert.rejects(archive.updateMetadata(crypto.randomUUID(),{label:'x',note:''}));await assert.rejects(archive.updateMetadata('../file',{label:'x',note:''}));assert.equal(await fs.readFile(path.join(dir,'index.json'),'utf8'),before);
+ await archive.updateMetadata(row.id,{label:'x'.repeat(300),note:'y'.repeat(2000)});assert.equal((await archive.get(row.id)).note.length,2000);
+}));
+test('serialized edits preserve concurrent registrations and never resurrect removed recordings',()=>fixture(async(dir,archive)=>{
+ const row=await archive.add({saved:true,filePath:await video(dir,'a.webm')}),second=await video(dir,'b.webm');
+ await Promise.all([archive.updateMetadata(row.id,{label:'Новое',note:'Заметка'}),archive.add({saved:true,filePath:second})]);assert.equal((await archive.list()).length,2);assert.equal((await archive.get(row.id)).note,'Заметка');
+ await archive.forget(row.id);await assert.rejects(archive.updateMetadata(row.id,{label:'Вернуть',note:''}));assert.equal((await archive.list()).length,1);
+}));
+test('oversized metadata index is rejected before replacing the readable index',()=>fixture(async(dir,archive)=>{
+ const row=await archive.add({saved:true,filePath:await video(dir)}),before=await fs.readFile(path.join(dir,'index.json'),'utf8');
+ await assert.rejects(archive.mutate(()=>Array.from({length:5000},()=>({...row,note:'x'.repeat(2000)}))),/8 МиБ/);assert.equal(await fs.readFile(path.join(dir,'index.json'),'utf8'),before);assert.equal((await archive.list()).length,1);
+}));

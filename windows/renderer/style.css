@@ -79,3 +79,5 @@
 .favorite-button{position:absolute;top:8px;right:8px;background:#101827dc;color:#ffdc78;border:1px solid #74603f;border-radius:7px;font-size:22px;padding:0 8px;line-height:1.4}.favorites-filter{display:flex;align-items:center;gap:6px;white-space:nowrap}.stream-filter .favorites-filter input{flex:none;min-width:0;width:auto;margin:0}
 
 .archive-tools select{max-width:100%;border:1px solid #456184;border-radius:8px;background:#101a2b;color:#e7eefb;padding:10px}
+
+.recording-metadata{max-width:620px}.recording-metadata form{display:grid;gap:10px}.recording-metadata h2{margin:0 0 8px}.recording-metadata input,.recording-metadata textarea{width:100%;border:1px solid #456184;border-radius:8px;background:#101a2b;color:#e7eefb;padding:12px;font:inherit}.recording-metadata textarea{resize:vertical}.recording-metadata .muted{font-size:12px}.archive-note{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0;color:#c2d2ea;font-size:12px}

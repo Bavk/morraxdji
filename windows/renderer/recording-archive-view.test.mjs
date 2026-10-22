@@ -23,3 +23,8 @@ test('archive sorting has deterministic ties and tolerates invalid metadata',()=
  assert.deepEqual(ids(selectRecordings(rows,{sort:'size'})),['a','b']);
  assert.deepEqual(ids(selectRecordings(rows,{sort:'unknown'})),['a','b']);
 });
+
+test('recording search includes multiline notes and edited titles with availability filtering',()=>{
+ const rows=[{id:'x',label:'Проверка связи',note:'02:15 — смена канала\nАнтенна <b>текст</b>',filePath:'a.webm',createdAt:'2026-10-22',available:false}];
+ assert.equal(filterRecordings(rows,'АНТЕННА')[0].id,'x');assert.equal(filterRecordings(rows,'проверка связи').length,1);assert.equal(filterRecordings(rows,'<b>текст</b>').length,1);assert.equal(selectRecordings(rows,{query:'02:15',availability:'available'}).length,0);
+});

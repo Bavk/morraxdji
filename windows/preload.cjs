@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('streamControl',Object.freeze({
   importRecordings:()=>call('archive:import'),
   playRecording:id=>call('archive:play',id),
   revealRecording:id=>call('archive:reveal',id),
+  updateRecording:(id,metadata)=>call('archive:update',id,metadata),
   forgetRecording:id=>call('archive:forget',id),
   saveSnapshot:(label,png)=>call('snapshot:save',label,png),
   recoverServer:()=>call('server:recover'),
