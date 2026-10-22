@@ -1,6 +1,6 @@
 {
   "name": "universal-stream-control-windows",
-  "version": "0.50.0",
+  "version": "0.50.1",
   "private": true,
   "main": "main.cjs",
   "scripts": {
@@ -60,11 +60,9 @@
         "from": "../server",
         "to": "server",
         "filter": [
-          "server.mjs",
-          "livekit-admin.mjs",
-          "operator-network.mjs",
-          "revoked-reconciler.mjs",
-          "pending-deletions.mjs"
+          "**/*.mjs",
+          "!**/*.test.mjs",
+          "!test.mjs"
         ]
       },
       {

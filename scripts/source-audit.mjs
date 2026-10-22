@@ -2,6 +2,7 @@
 // a successful source audit as a successful Android or Windows binary build.
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import {serverModules} from './server-dependencies.mjs';
 const mustExist=[
  'windows/main.cjs','windows/room-lifecycle.cjs','windows/preload.cjs','windows/package.json','windows/diagnostic-report.cjs',
  'windows/smoke.cjs','windows/renderer/main.js','windows/renderer/index.html','windows/vite.config.mjs','scripts/verify-ui-build.mjs',
@@ -30,9 +31,9 @@ assert.match(workflow,/Smoke test real Electron renderer and preload/);
 assert.match(workflow,/Verify packaged LiveKit API sources/);
 assert.equal(win.scripts['smoke:ui'],'electron smoke.cjs');
 assert.match(workflow,/Verify Android APK package and debug signature/);
-for(const dep of ['server.mjs','livekit-admin.mjs','operator-network.mjs','revoked-reconciler.mjs','pending-deletions.mjs']){
+for(const dep of serverModules('server')){
  assert.ok(fs.existsSync(`server/${dep}`));
- assert.ok(win.build.extraResources.some(x=>x.from==='../server' && x.filter.some(filter=>filter==='*.mjs' || filter===dep)),
+ assert.ok(win.build.extraResources.some(x=>x.from==='../server' && x.filter.some(filter=>filter==='**/*.mjs'||(!dep.includes('/')&&filter==='*.mjs') || filter===dep)),
   `Packaged Electron server misses ${dep}`);
 }
 const androidSource=fs.readFileSync('android/app/src/main/java/com/universalstream/operator/MainActivity.kt','utf8');

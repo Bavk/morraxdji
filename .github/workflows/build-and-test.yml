@@ -80,9 +80,8 @@ jobs:
           $resourceDir = 'windows/release/win-unpacked/resources/server'
           if (-not (Test-Path 'windows/release/win-unpacked/resources/livekit/livekit-server.exe')) { throw 'Missing bundled native LiveKit' }
           if (-not (Test-Path 'windows/release/win-unpacked/resources/livekit/LICENSE')) { throw 'Missing LiveKit license' }
-          foreach ($source in @('server.mjs','livekit-admin.mjs','operator-network.mjs','revoked-reconciler.mjs','pending-deletions.mjs')) {
-            if (-not (Test-Path (Join-Path $resourceDir $source))) { throw "Missing packaged API file: $source" }
-          }
+          node scripts/verify-packaged-server.mjs $resourceDir
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged server dependency/startup check failed' }
       - name: Create SHA256 checksums for Windows installer
         shell: pwsh
         run: |
