@@ -38,3 +38,6 @@ windows/vendor/livekit/
 
 # Local recording library metadata
 **/recordings-index.json*
+
+# Default frame snapshot filenames
+USC_frame_*.png
