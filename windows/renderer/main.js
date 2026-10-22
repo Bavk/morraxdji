@@ -1,3 +1,4 @@
+import {askName} from './name-dialog.mjs';
 import {StreamSessionClock,formatSessionDuration} from './stream-session-clock.mjs';
 import {captureWallSnapshot,wallSnapshotSources} from './wall-snapshot.mjs';
 import {StreamAlerts,AlertTone} from './stream-alert.mjs';
@@ -227,8 +228,8 @@ function dashboard(){
   try{await disconnect();await window.streamControl.stopServer();rooms=[];active=null;wallMode=false;serverInfo=null;streamAlerts.enable(false);alertTone.stop();startScreen();}
   catch(err){displayErr(err);}
  };
- q('#addRoom').onclick=async()=>{const name=prompt('Название новой комнаты');if(!name?.trim())return;try{await window.streamControl.createRoom(name.trim());await refresh();}catch(err){displayErr(err);}};
- q('#newKey').onclick=async()=>{if(!active)return;const name=prompt('Название оператора (например: Оператор 01)');if(!name?.trim())return;
+ q('#addRoom').onclick=async()=>{const name=await askName({title:'Название новой комнаты',maxLength:80});if(!name?.trim())return;try{await window.streamControl.createRoom(name.trim());await refresh();}catch(err){displayErr(err);}};
+ q('#newKey').onclick=async()=>{if(!active)return;const name=await askName({title:'Название оператора (например: Оператор 01)',maxLength:60});if(!name?.trim())return;
  try{const data=await window.streamControl.createKey(active,name.trim());await refresh(false);showKey(data.key,name);}catch(err){displayErr(err);}};
  q('#selfTest').onclick=async()=>{
    const button=q('#selfTest');
@@ -247,7 +248,7 @@ function dashboard(){
  q('#gridColumns').value=String([0,1,2,3,4].includes(gridColumns)?gridColumns:0);
  q('#gridColumns').onchange=e=>{gridColumns=Number(e.target.value);wallLayout.setColumns(gridColumns);applyGridLayout();};
  q('#refresh').onclick=()=>refresh(false);
- q('#renameRoom').onclick=async()=>{if(!active)return;const id=active,room=rooms.find(r=>r.id===id);const name=prompt('Новое название комнаты (до 80 символов)',room?.name||'');if(name===null||name.trim()===room?.name)return;if(!name.trim()||name.trim().length>80||/[\u0000-\u001f\u007f]/.test(name)){displayErr(Error('Введите название от 1 до 80 символов без управляющих символов'));return;}const button=q('#renameRoom');button.disabled=true;try{await window.streamControl.renameRoom(id,name.trim());await refresh(false);}catch(err){displayErr(err);}finally{if(button.isConnected)button.disabled=!active;}};
+ q('#renameRoom').onclick=async()=>{if(!active)return;const id=active,room=rooms.find(r=>r.id===id);const name=await askName({title:'Новое название комнаты',value:room?.name||'',maxLength:80});if(name===null||name.trim()===room?.name)return;if(!name.trim()||name.trim().length>80||/[\u0000-\u001f\u007f]/.test(name)){displayErr(Error('Введите название от 1 до 80 символов без управляющих символов'));return;}const button=q('#renameRoom');button.disabled=true;try{await window.streamControl.renameRoom(id,name.trim());await refresh(false);}catch(err){displayErr(err);}finally{if(button.isConnected)button.disabled=!active;}};
  q('#deleteRoom').onclick=async()=>{if(!active)return;const r=rooms.find(x=>x.id===active);if(!confirm(`Удалить комнату «${r?.name}»?`))return;
  try{const result=await window.streamControl.deleteRoom(active);active=null;await disconnect();await refresh(false);
    if(result?.warning)displayErr(new Error(result.warning));}catch(err){displayErr(err);}};
@@ -284,7 +285,7 @@ function paintRoomList(){
 function paintKeys(r){
  q('#keys').innerHTML=r.keys.length?r.keys.map(k=>{const state=presence.get(k.id);const stateName=k.revoked?'Отозван':state?.streaming?'● Транслирует':state?.online?'● Подключён':'○ Не в сети';const cls=k.revoked?'muted':state?.streaming?'streaming':state?.online?'online':'muted';return `<div class="key-row"><span>${escapeHtml(k.name)}</span><span class="${cls}">${stateName}</span>
  ${k.revoked?'':`<button class="minor" data-rename-operator="${k.id}">Переименовать</button><button class="danger" data-revoke="${k.id}">Отозвать</button>`}</div>`;}).join(''):'<span class="muted">Нажмите «Ключ оператора» для подключения первого пульта</span>';
- q('#keys').querySelectorAll('[data-rename-operator]').forEach(button=>button.onclick=async()=>{const id=button.dataset.renameOperator,operator=r.keys.find(k=>k.id===id);const name=prompt('Новое имя пульта (до 60 символов)',operator?.name||'');if(name===null||name.trim()===operator?.name)return;if(!name.trim()||name.trim().length>60||/[\u0000-\u001f\u007f]/.test(name)){displayErr(Error('Введите имя от 1 до 60 символов без управляющих символов'));return;}button.disabled=true;try{await window.streamControl.renameOperator(r.id,id,name.trim());await refresh(false);}catch(err){displayErr(err);}finally{if(button.isConnected)button.disabled=false;}});
+ q('#keys').querySelectorAll('[data-rename-operator]').forEach(button=>button.onclick=async()=>{const id=button.dataset.renameOperator,operator=r.keys.find(k=>k.id===id);const name=await askName({title:'Новое имя пульта',value:operator?.name||'',maxLength:60});if(name===null||name.trim()===operator?.name)return;if(!name.trim()||name.trim().length>60||/[\u0000-\u001f\u007f]/.test(name)){displayErr(Error('Введите имя от 1 до 60 символов без управляющих символов'));return;}button.disabled=true;try{await window.streamControl.renameOperator(r.id,id,name.trim());await refresh(false);}catch(err){displayErr(err);}finally{if(button.isConnected)button.disabled=false;}});
  q('#keys').querySelectorAll('[data-revoke]').forEach(btn=>btn.onclick=async()=>{if(!confirm('Отозвать этот ключ?'))return;
  try{const result=await window.streamControl.revokeKey(r.id,btn.dataset.revoke);await refresh(false);if(result?.warning)displayErr(new Error(result.warning));}catch(err){displayErr(err);}});
 }

@@ -1,0 +1,3 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {validateName} from './name-dialog.mjs';
+test('room and operator names trim input and preserve Cyrillic and literal markup',()=>{assert.equal(validateName('  Пульт 2  ',80),'Пульт 2');assert.equal(validateName('<b>текст</b>',60),'<b>текст</b>');assert.equal(validateName('x'.repeat(80),80).length,80);assert.equal(validateName('x'.repeat(60),60).length,60);});
+test('empty, overlong and control characters are rejected',()=>{for(const name of ['', '  ','x'.repeat(81),'a\nb','a\0b','a\u007fb'])assert.throws(()=>validateName(name,80));assert.throws(()=>validateName('x'.repeat(61),60));});
