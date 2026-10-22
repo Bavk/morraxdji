@@ -45,3 +45,5 @@ USC_frame_*.png
 **/event-log.json*
 
 **/power-preferences.json*
+
+*.usc

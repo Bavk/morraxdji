@@ -31,6 +31,7 @@
         <Button android:id="@+id/pasteButton" android:layout_width="match_parent"
             android:layout_height="48dp" android:layout_marginTop="12dp"
             android:text="Вставить код из буфера обмена" android:textAllCaps="false" />
+        <Button android:id="@+id/importCodeButton" android:layout_width="match_parent" android:layout_height="48dp" android:text="Загрузить код из файла .usc" android:textAllCaps="false" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="КАЧЕСТВО ТРАНСЛЯЦИИ" android:textColor="#A1B3CB"
             android:layout_marginTop="22dp" android:textSize="12sp" />

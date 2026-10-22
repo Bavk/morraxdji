@@ -10,8 +10,8 @@ android {
         applicationId = "com.universalstream.operator"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.15.0"
+        versionCode = 28
+        versionName = "0.28.0"
     }
     buildTypes {
         getByName("release") { isMinifyEnabled = false }
@@ -26,6 +26,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("com.wireguard.android:tunnel:1.0.20260102")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("io.livekit:livekit-android:2.29.0")

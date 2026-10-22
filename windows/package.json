@@ -1,6 +1,6 @@
 {
   "name": "universal-stream-control-windows",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "private": true,
   "main": "main.cjs",
   "scripts": {
@@ -43,7 +43,8 @@
       "snapshot-store.cjs",
       "event-log.cjs",
       "recording-space.cjs",
-      "power-guard.cjs"
+      "power-guard.cjs",
+      "invite-file.cjs"
     ],
     "directories": {
       "output": "release"

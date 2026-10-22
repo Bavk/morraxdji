@@ -118,7 +118,7 @@ jobs:
           gradle-version: '8.9'
       - name: Compile debug APK
         working-directory: android
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
       - name: Verify Android APK package and debug signature
         working-directory: android
         shell: bash

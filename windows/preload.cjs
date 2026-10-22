@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('streamControl',Object.freeze({
   listEvents:()=>call('events:list'),
   exportEvents:()=>call('events:export'),
   setKeepAwake:enabled=>call('power:configure',enabled),
+  saveInvite:code=>call('invite:save',code),
   status:()=>call('server:status'),
   diagnostics:()=>call('server:diagnostics'),
   saveDiagnostics:()=>call('diagnostics:save'),

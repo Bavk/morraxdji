@@ -107,6 +107,22 @@ class MainActivity:ComponentActivity() {
     private var sessionEpoch=0
     private var captureEpoch=-1
 
+    private val inviteFileLauncher=registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if(uri==null)return@registerForActivityResult
+        if(!start.isEnabled || StreamState.room!=null){setStatus("Сначала остановите текущий сеанс");return@registerForActivityResult}
+        val attempt=sessionEpoch
+        lifecycleScope.launch {
+            try {
+                val code=withContext(Dispatchers.IO) {
+                    require(uri.scheme=="content")
+                    contentResolver.openInputStream(uri)?.use { InviteFile.read(it) } ?: error("Файл недоступен")
+                }
+                if(attempt!=sessionEpoch || !start.isEnabled || StreamState.room!=null)return@launch
+                inviteInput.setText(code)
+                setStatus("Код загружен. Нажмите «Начать трансляцию»")
+            }catch(_:Exception){if(attempt==sessionEpoch)setStatus("Не удалось загрузить код. Выберите файл .usc из Windows-приложения")}
+        }
+    }
     private val vpnLauncher=registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val enrollment=pending;pending=null
         if(pendingVpnEpoch!=sessionEpoch)return@registerForActivityResult
@@ -168,6 +184,10 @@ class MainActivity:ComponentActivity() {
                 inviteInput.setText(value)
                 setStatus("Код вставлен. Нажмите «Начать трансляцию»")
             }else setStatus("Буфер обмена не содержит подходящего кода USCV1")
+        }
+        findViewById<Button>(R.id.importCodeButton).setOnClickListener {
+            if(!start.isEnabled || StreamState.room!=null)setStatus("Сначала остановите текущий сеанс")
+            else inviteFileLauncher.launch(arrayOf("*/*"))
         }
         stop=findViewById(R.id.stopButton)
         store=InviteStore(this)

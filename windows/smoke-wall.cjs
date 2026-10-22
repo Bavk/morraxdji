@@ -12,6 +12,9 @@ const {RecordingArchive,registerArchiveScheme,handleArchiveProtocol}=require('./
 registerArchiveScheme(protocol);
 const recordingStore=new RecordingStore({onSaved:result=>archive.add(result)});const savedRecordings=[];const recordingChunks=new Map();let recordingIndex=0,playback;
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'usc-wall-smoke-'));
+const {saveInvite}=require('./invite-file.cjs');
+const {makeInvite,wireguardKeys}=require('./vpn.cjs');
+const syntheticInvite=makeInvite({operatorKey:'STRM_'+'x'.repeat(32),privateKey:wireguardKeys().privateKey,address:'10.77.0.100',relayKey:wireguardKeys().publicKey,endpoint:'relay.example.com:51820'});
 const {PowerGuard}=require('./power-guard.cjs');
 const powerGuard=new PowerGuard({blocker:powerSaveBlocker,file:path.join(dir,'power-preferences.json')});
 const {EventLog}=require('./event-log.cjs');
@@ -29,7 +32,7 @@ async function cleanup(){
  powerGuard.update(false);assert.equal(powerGuard.status().active,false);
  if(viewer&&!viewer.isDestroyed()){await recordingStore.closeOwner(viewer.webContents.id);viewer.destroy();}if(publisher&&!publisher.isDestroyed())publisher.destroy();if(playback&&!playback.isDestroyed())playback.destroy();if(api){const server=api;api=null;await new Promise(r=>server.close(r));}await native.stop();
  // Chromium keeps its temporary profile open until app.exit; remove synthetic credentials only.
- for(const name of ['livekit.yaml','rooms.json'])fs.rmSync(path.join(dir,name),{force:true});
+ for(const name of ['livekit.yaml','rooms.json','synthetic-invite.usc'])fs.rmSync(path.join(dir,name),{force:true});
 }
 const deadline=setTimeout(()=>{console.error('Wall smoke exceeded 120 seconds');app.exit(1);},120000);
 app.whenReady().then(async()=>{
@@ -51,6 +54,8 @@ app.whenReady().then(async()=>{
  powerGuard.update(true);assert.equal(powerGuard.status().active,true);
  ipcMain.handle('power:configure',(_,enabled)=>powerGuard.setEnabled(enabled));
  ipcMain.handle('server:status',()=>({power:powerGuard.status(),running:true,mode:'lan',ips:[ip],vpn:{configured:false},operatorUrl:base}));
+ ipcMain.handle('key:create',()=>({key:syntheticInvite}));
+ ipcMain.handle('invite:save',(_,code)=>saveInvite(path.join(dir,'synthetic-invite.usc'),code));
  ipcMain.handle('room:list',()=>call('/api/admin/rooms'));
  ipcMain.handle('room:view',(_,id)=>call(`/api/admin/rooms/${id}/viewer`,'POST',{}));
  ipcMain.handle('room:presence',(_,id)=>call(`/api/admin/rooms/${id}/presence`));
@@ -260,6 +265,13 @@ app.whenReady().then(async()=>{
  await viewer.webContents.executeJavaScript("document.querySelector('[data-room]').click()");
  await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('.keys-panel').hidden && document.querySelector('#wallRoomStates').hidden"),'return to single room');
  await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('.record-button'))"),'single room video');
+ await viewer.webContents.executeJavaScript("window.prompt=()=> 'Synthetic operator';document.querySelector('#newKey').click()");
+ await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('#saveInvite'))"),'invite export dialog');
+ await viewer.webContents.executeJavaScript("document.querySelector('#saveInvite').click()");
+ await until(()=>fs.existsSync(path.join(dir,'synthetic-invite.usc')),'synthetic enrollment export');
+ assert.equal(fs.readFileSync(path.join(dir,'synthetic-invite.usc'),'utf8').trim(),syntheticInvite);
+ await viewer.webContents.executeJavaScript("document.querySelector('#closeKey').click()");
+ await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('#saveInvite')"),'invite dialog closed');
  await viewer.webContents.executeJavaScript("document.querySelector('.record-button').click()");
  await until(()=>recordingStore.sessions.size===1&&[...recordingStore.sessions.keys()].some(id=>(recordingChunks.get(id)||0)>=2),'recording before close');
  snapshotDelayMs=300;await viewer.webContents.executeJavaScript("document.querySelector('.snapshot-button').click()");
@@ -267,5 +279,5 @@ app.whenReady().then(async()=>{
  assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===5,'final chunk saved before window closes');await verifyRecording(savedRecordings[4]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release');
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard, stream search/focus/Escape/empty/hidden recordings, active recordings reveal/individual stop/canceled batch/confirmed batch/saved playback, real power blocker/toggle/reload/release, synthetic invite file export');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});
