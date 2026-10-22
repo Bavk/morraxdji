@@ -35,3 +35,6 @@ windows/vendor/livekit/
 
 # Local video recordings
 *.webm
+
+# Local recording library metadata
+**/recordings-index.json*
