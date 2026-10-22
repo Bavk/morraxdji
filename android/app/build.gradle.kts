@@ -16,6 +16,14 @@ android {
     buildTypes {
         getByName("release") { isMinifyEnabled = false }
     }
+    signingConfigs.getByName("debug") {
+        System.getenv("USC_DEBUG_KEYSTORE_PATH")?.let { persistentKey ->
+            storeFile = file(persistentKey)
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         isCoreLibraryDesugaringEnabled = true

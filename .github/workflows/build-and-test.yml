@@ -135,6 +135,8 @@ jobs:
               target.parent.mkdir(parents=True, exist_ok=True)
               target.write_bytes(base64.b64decode(value, validate=True))
               target.chmod(0o600)
+              with open(os.environ['GITHUB_ENV'], 'a') as environment:
+                  environment.write('USC_DEBUG_KEYSTORE_PATH=' + str(target) + '\n')
               print('Persistent test signing restored')
           PYKEY
       - name: Compile debug APK
@@ -148,6 +150,11 @@ jobs:
           test -n "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | grep "package: name='com.universalstream.operator'"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+          if [ -n "${USC_DEBUG_KEYSTORE_PATH:-}" ]; then
+            expected=$(keytool -list -v -keystore "$USC_DEBUG_KEYSTORE_PATH" -storepass android -alias androiddebugkey | sed -n 's/.*SHA256: //p' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+            actual=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/Signer #1 certificate SHA-256 digest: //p')
+            test -n "$expected" && test "$expected" = "$actual" || { echo 'APK did not use the persistent signing key'; exit 1; }
+          fi
       - name: Create SHA256 checksums for Android APK
         working-directory: android/app/build/outputs/apk/debug
         run: |
