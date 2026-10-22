@@ -73,3 +73,5 @@
 .sidebar{overflow-y:auto}
 
 .tile-shortcut{position:absolute;top:10px;left:10px;background:#101827c9;color:#d8e8ff;border:1px solid #56729b;border-radius:6px;padding:3px 8px;font-size:12px;pointer-events:none}.shortcut-help{color:#93a2ba;font-size:11px;white-space:nowrap}
+
+.stream-summary{padding:10px 24px;background:#162338;border-bottom:1px solid #2b3d58;color:#b9d6ef;font-size:12px;line-height:1.8;font-variant-numeric:tabular-nums}

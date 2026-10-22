@@ -1,3 +1,4 @@
+import {summarizeStreams,formatStreamSummary} from './wall-summary.mjs';
 import {wallShortcut} from './wall-shortcuts.mjs';
 import {confirmViewSwitch} from './view-switch.mjs';
 import {showActiveRecordings} from './active-recordings.mjs';
@@ -161,13 +162,13 @@ function dashboard(){
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
  </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
- <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
+ <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  mountPowerSettings(serverInfo?.power);
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#activeRecordingsButton').onclick=()=>showActiveRecordings({getRows:activeRecordingRows,onReveal:revealActiveRecording});
- updateActiveRecordingButton();
+ updateActiveRecordingButton();updateStreamSummary();
  q('#streamSearch').value=streamQuery;
  q('#streamSearch').oninput=e=>{streamQuery=e.target.value;applyGridLayout();};
  q('#clearStreamSearch').onclick=()=>{streamQuery='';q('#streamSearch').value='';applyGridLayout();q('#streamSearch').focus();};
@@ -287,7 +288,7 @@ async function refresh(fallback=true){try{const data=await window.streamControl.
 async function selectRoom(id){if(!wallMode&&active===id&&session)return;if(!confirmViewSwitch(activeRecordings,message=>confirm(message)))return;await disconnect();wallMode=false;wallStates.clear();q('#wallRoomStates').hidden=true;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
 function clearTiles(){
  for(const entry of tiles.values()){void entry.recorder?.stop();entry.stopMonitor?.();entry.track.detach();entry.item.remove();}
- tiles.clear();observedSources.clear();focusedTile=null;updateStreamFilterSummary(0,0);
+ tiles.clear();observedSources.clear();focusedTile=null;updateStreamFilterSummary(0,0);updateStreamSummary();
 }
 async function disconnect(){
  wall.stop();wallStates.clear();journalRoomStates.clear();
@@ -315,7 +316,7 @@ function applyGridLayout(){
   entry.focus.textContent=id===focusedTile?'Вернуть сетку':'Крупно';
   applyReceiveState(entry);
  }
- updateStreamFilterSummary(view.matching.length,tiles.size);
+ updateStreamFilterSummary(view.matching.length,tiles.size);updateStreamSummary();
 }
 function updateActiveRecordingButton(){const button=q('#activeRecordingsButton');if(button)button.textContent='Записи: '+activeRecordings.size;}
 function activeRecordingRows(){return [...activeRecordings].map(recorder=>{const meta=recordingMetadata.get(recorder);return {...meta,state:recorder.state,startedAt:recorder.startedAt,filePath:recorder.filePath,freeBytesAtStart:recorder.freeBytesAtStart,canReveal:tiles.get(meta.tileId)?.recorder===recorder,stop:async()=>{await recorder.stop();if(recorder.error)throw Error('Не удалось сохранить запись. Проверьте уведомление об ошибке.');}};});}
@@ -327,13 +328,17 @@ function updateStreamFilterSummary(matched,total=tiles.size){
  const clear=q('#clearStreamSearch');if(clear)clear.disabled=!streamQuery;
  const empty=q('#streamFilterEmpty');if(empty)empty.hidden=!total||matched>0;
 }
+function updateStreamSummary(){const host=q('#streamSummary');if(!host)return;
+ const rows=[...tiles.values()].map(entry=>({hidden:entry.item.hidden,connected:wallMode?wallStates.get(entry.roomId)==='connected':session?.state==='connected',receiving:!entry.track.isMuted&&receiveEnabled({paused:entry.receivePaused,hidden:entry.item.hidden,recordingState:entry.recorder?.state}),sample:entry.health,sampleAt:entry.sampleAt}));
+ const summary=summarizeStreams(rows,performance.now());host.textContent=formatStreamSummary(summary);host.dataset.live=String(summary.live);host.dataset.stale=String(summary.stale);host.dataset.paused=String(summary.paused);host.dataset.hidden=String(summary.hidden);host.dataset.receiving=String(summary.receiving);host.dataset.measured=String(summary.measured);
+}
 function applyReceiveState(entry){
  entry.pub.setEnabled(receiveEnabled({paused:entry.receivePaused,hidden:entry.item.hidden,recordingState:entry.recorder?.state}));
  entry.pauseButton.textContent=entry.receivePaused?'▶ Приём':'Ⅱ Пауза';entry.pauseButton.disabled=recordingBusy(entry.recorder?.state);
  entry.pauseButton.setAttribute('aria-pressed',String(entry.receivePaused));entry.pauseButton.title=entry.receivePaused?'Возобновить приём этого пульта':'Приостановить приём на этом Windows-ПК; другие зрители продолжают просмотр';
  entry.item.classList.toggle('receive-paused',Boolean(entry.receivePaused));
  entry.recordButton.disabled=entry.receivePaused||['choosing','stopping'].includes(entry.recorder?.state);
- renderEntryHealth(entry);
+ renderEntryHealth(entry);updateStreamSummary();
 }
 function focusTile(id){focusedTile=focusedTile===id?null:id;applyGridLayout();}
 async function connectRoom(id,{retry=false}={}){
@@ -422,8 +427,8 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
   }});entry.recorder=recorder;recordingMetadata.set(recorder,{id:String(++recordingSerial),label:n.textContent,tileId:id});activeRecordings.add(recorder);
   await recorder.start(n.textContent).catch(()=>{});
  };
- entry.stopMonitor=monitorStream({track,video,isActive:()=>!entry.receivePaused&&!item.hidden&&!track.isMuted,onUpdate:sample=>{
-  if(tiles.get(id)!==entry)return;const transition=frameTransition(entry.lastFrameState,sample.state);if(transition)logEvent(transition,entry.label);if(['live','stale'].includes(sample.state))entry.lastFrameState=sample.state;entry.health=sample;renderEntryHealth(entry);if(wallMode)updateWallStatus();
+ entry.stopMonitor=monitorStream({track,video,isActive:()=>!track.isMuted&&receiveEnabled({paused:entry.receivePaused,hidden:item.hidden,recordingState:entry.recorder?.state}),onUpdate:sample=>{
+  if(tiles.get(id)!==entry)return;const transition=frameTransition(entry.lastFrameState,sample.state);if(transition)logEvent(transition,entry.label);if(['live','stale'].includes(sample.state))entry.lastFrameState=sample.state;entry.health=sample;entry.sampleAt=performance.now();renderEntryHealth(entry);updateStreamSummary();if(wallMode)updateWallStatus();
  }});if(p.identity===videoTest.identity){
   if(typeof video.requestVideoFrameCallback==='function')video.requestVideoFrameCallback(()=>videoTest.onVideoFrame(p.identity));
   else video.addEventListener('playing',()=>videoTest.onVideoFrame(p.identity),{once:true});
@@ -495,4 +500,5 @@ async function saveTileSnapshot(entry){
  }catch(error){recordingNotice('Не удалось сохранить кадр: '+(error.message||String(error)),true);}
  finally{entry.snapshotPending=false;entry.snapshotButton.textContent='Кадр';entry.snapshotButton.disabled=entry.receivePaused||entry.video.readyState<2||!entry.video.videoWidth;}
 }
+setInterval(updateStreamSummary,1000);
 startup();

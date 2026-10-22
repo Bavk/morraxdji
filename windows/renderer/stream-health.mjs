@@ -35,7 +35,8 @@ export function monitorStream({track,video,isActive=()=>true,onUpdate,intervalMs
   if(isActive())try{report=await track.getRTCStatsReport?.();}catch{}
   if(stopped)return;
   const quality=video.getVideoPlaybackQuality?.();
-  const frames=finite(quality?.totalVideoFrames);
+  // Hidden video elements may stop presenting frames while a recording still decodes.
+  const frames=readVideoStats(report).decoded??finite(quality?.totalVideoFrames);
   onUpdate(health.sample({frames,width:video.videoWidth,height:video.videoHeight,report,active:isActive()},now()));
   if(!stopped)timer=setTimer(tick,intervalMs);
  }

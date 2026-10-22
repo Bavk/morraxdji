@@ -26,3 +26,8 @@ test('stopped monitor discards a pending stats response and schedules no timer',
  let resolveReport,updates=0,timers=0;const pending=new Promise(r=>resolveReport=r);
  const stop=monitorStream({track:{getRTCStatsReport:()=>pending},video:{},onUpdate:()=>updates++,setTimer:()=>timers++});stop();resolveReport(null);await pending;await Promise.resolve();assert.equal(updates,0);assert.equal(timers,0);
 });
+
+test('hidden recording health uses decoded frames when presentation counter does not advance',async()=>{
+ let decoded=10,time=0,tick;const samples=[];const stop=monitorStream({track:{getRTCStatsReport:async()=>new Map([['video',{type:'inbound-rtp',kind:'video',framesDecoded:decoded}]])},video:{getVideoPlaybackQuality:()=>({totalVideoFrames:1})},onUpdate:s=>samples.push(s),now:()=>time,setTimer:callback=>{tick=callback;return 1;},clearTimer:()=>{}});
+ await new Promise(resolve=>setTimeout(resolve,0));decoded=60;time=5000;await tick();stop();assert.equal(samples.at(-1).state,'live');assert.equal(samples.at(-1).fps,10);
+});
