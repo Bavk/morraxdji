@@ -1,3 +1,4 @@
+import {showActiveRecordings} from './active-recordings.mjs';
 import {filteredLayout} from './stream-filter.mjs';
 import {recordingBusy,receiveEnabled,toggleReceive} from './receive-control.mjs';
 import {WallLayout,sourceKey,showWallOrder} from './wall-layout.mjs';
@@ -15,6 +16,7 @@ const el=document.querySelector('#app');
 let rooms=[];let active=null;let session=null;let tiles=new Map();let serverInfo=null;
 let presence=new Map();let presenceTimer=null;let presenceRequest=0;
 const activeRecordings=new Set();
+const recordingMetadata=new Map();let recordingSerial=0;
 const activeSnapshots=new Set();
 const pendingEvents=new Set();
 const observedSources=new Map(),journalRoomStates=new Map();
@@ -155,11 +157,13 @@ function dashboard(){
  <main class="main"><header><div><div id="roomTitle" class="room-title">Выберите комнату</div><span id="roomInfo" class="muted">Мониторинг операторов</span></div>
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
- </select></label><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
+ </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
  <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
+ q('#activeRecordingsButton').onclick=()=>showActiveRecordings({getRows:activeRecordingRows,onReveal:revealActiveRecording});
+ updateActiveRecordingButton();
  q('#streamSearch').value=streamQuery;
  q('#streamSearch').oninput=e=>{streamQuery=e.target.value;applyGridLayout();};
  q('#clearStreamSearch').onclick=()=>{streamQuery='';q('#streamSearch').value='';applyGridLayout();q('#streamSearch').focus();};
@@ -300,9 +304,12 @@ function applyGridLayout(){
  }
  updateStreamFilterSummary(view.matching.length,tiles.size);
 }
+function updateActiveRecordingButton(){const button=q('#activeRecordingsButton');if(button)button.textContent='Записи: '+activeRecordings.size;}
+function activeRecordingRows(){return [...activeRecordings].map(recorder=>{const meta=recordingMetadata.get(recorder);return {...meta,state:recorder.state,startedAt:recorder.startedAt,filePath:recorder.filePath,canReveal:tiles.get(meta.tileId)?.recorder===recorder,stop:async()=>{await recorder.stop();if(recorder.error)throw Error('Не удалось сохранить запись. Проверьте уведомление об ошибке.');}};});}
+function revealActiveRecording(id){const row=activeRecordingRows().find(row=>row.id===id);if(!row?.canReveal)return false;streamQuery='';const search=q('#streamSearch');if(search)search.value='';focusedTile=row.tileId;applyGridLayout();tiles.get(row.tileId)?.item.scrollIntoView({block:'nearest'});return true;}
 function updateStreamFilterSummary(matched,total=tiles.size){
  matched??=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name})),streamQuery).matching.length;
- const hiddenRecordings=[...tiles.values()].filter(t=>t.item.hidden&&recordingBusy(t.recorder?.state)).length;
+ const hiddenRecordings=[...tiles.values()].filter(t=>t.item.hidden&&activeRecordings.has(t.recorder)&&recordingBusy(t.recorder?.state)).length;
  const summary=q('#streamSearchSummary');if(summary)summary.textContent=`Найдено потоков: ${matched} из ${total}`+(hiddenRecordings?` · Скрытых записей: ${hiddenRecordings}`:'');
  const clear=q('#clearStreamSearch');if(clear)clear.disabled=!streamQuery;
  const empty=q('#streamFilterEmpty');if(empty)empty.hidden=!total||matched>0;
@@ -393,11 +400,12 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
    recordButton.setAttribute('aria-label',state==='recording'?'Остановить запись: '+n.textContent:'Записать: '+n.textContent);
    if(tiles.get(id)===entry){applyReceiveState(entry);updateStreamFilterSummary();}
    if(['saved','error','canceled'].includes(state)){
-    activeRecordings.delete(recorder);
+    activeRecordings.delete(recorder);recordingMetadata.delete(recorder);updateStreamFilterSummary();
     if(state==='saved')recordingNotice('Запись сохранена: '+data.filePath+(data.archiveWarning?' · '+data.archiveWarning:''));
     if(state==='error')recordingNotice('Ошибка записи: '+(data.message||String(data))+(recorder.filePath?' · Файл может быть неполным: '+recorder.filePath:''),true);
    }
-  }});entry.recorder=recorder;activeRecordings.add(recorder);
+   updateActiveRecordingButton();
+  }});entry.recorder=recorder;recordingMetadata.set(recorder,{id:String(++recordingSerial),label:n.textContent,tileId:id});activeRecordings.add(recorder);
   await recorder.start(n.textContent).catch(()=>{});
  };
  entry.stopMonitor=monitorStream({track,video,isActive:()=>!entry.receivePaused&&!item.hidden&&!track.isMuted,onUpdate:sample=>{
