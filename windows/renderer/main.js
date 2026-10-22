@@ -1,3 +1,4 @@
+import {recordingBusy,receiveEnabled,toggleReceive} from './receive-control.mjs';
 import {WallLayout,sourceKey,showWallOrder} from './wall-layout.mjs';
 import {frameTransition,showEventLog} from './event-log-view.mjs';
 import { Room,RoomEvent,Track } from 'livekit-client';
@@ -289,8 +290,16 @@ function applyGridLayout(){
   entry.item.hidden=Boolean(focusedTile && id!==focusedTile);
   entry.item.classList.toggle('is-focused',id===focusedTile);
   entry.focus.textContent=id===focusedTile?'Вернуть сетку':'Крупно';
-  if(entry.manualSubscription)entry.pub.setEnabled(!entry.item.hidden||['recording','stopping'].includes(entry.recorder?.state));
+  applyReceiveState(entry);
  }
+}
+function applyReceiveState(entry){
+ entry.pub.setEnabled(receiveEnabled({paused:entry.receivePaused,hidden:entry.item.hidden,recordingState:entry.recorder?.state}));
+ entry.pauseButton.textContent=entry.receivePaused?'▶ Приём':'Ⅱ Пауза';entry.pauseButton.disabled=recordingBusy(entry.recorder?.state);
+ entry.pauseButton.setAttribute('aria-pressed',String(entry.receivePaused));entry.pauseButton.title=entry.receivePaused?'Возобновить приём этого пульта':'Приостановить приём на этом Windows-ПК; другие зрители продолжают просмотр';
+ entry.item.classList.toggle('receive-paused',Boolean(entry.receivePaused));
+ entry.recordButton.disabled=entry.receivePaused||['choosing','stopping'].includes(entry.recorder?.state);
+ renderEntryHealth(entry);
 }
 function focusTile(id){focusedTile=focusedTile===id?null:id;applyGridLayout();}
 async function connectRoom(id,{retry=false}={}){
@@ -350,14 +359,17 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  warning.title='Кадр мог перестать обновляться из-за неподвижного экрана, паузы захвата или проблем связи.';
  const recordButton=document.createElement('button');recordButton.className='record-button';recordButton.textContent='● Запись';recordButton.title='Сохранить видео этого пульта в WebM без звука';
  const snapshotButton=document.createElement('button');snapshotButton.className='snapshot-button';snapshotButton.textContent='Кадр';snapshotButton.disabled=true;snapshotButton.title='Сохранить кадр в PNG в исходном разрешении, без интерфейса Windows';
- visual.append(video,warning);footer.append(n,badge,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
+ const pauseButton=document.createElement('button');pauseButton.className='pause-button';pauseButton.textContent='Ⅱ Пауза';
+ visual.append(video,warning);footer.append(n,badge,pauseButton,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
  grid.append(item);track.attach(video);
  const stableKey=sourceKey(String(roomId),p.identity);item.dataset.source=stableKey;wallLayout.remember([stableKey]);
- const entry={sourceKey:stableKey,item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,manualSubscription:false,snapshotButton,video,label:n.textContent,snapshotPending:false};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
+ const entry={sourceKey:stableKey,item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,snapshotButton,video,label:n.textContent,snapshotPending:false,pauseButton,receivePaused:false};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
+ pauseButton.onclick=()=>{if(toggleReceive(entry)){entry.lastFrameState=null;applyReceiveState(entry);}};
  snapshotButton.onclick=()=>{
   const pending=saveTileSnapshot(entry);activeSnapshots.add(pending);void pending.then(()=>activeSnapshots.delete(pending),()=>activeSnapshots.delete(pending));
  };
  recordButton.onclick=async()=>{
+  if(entry.receivePaused)return;
   if(entry.recorder&&['recording','stopping'].includes(entry.recorder.state)){await entry.recorder.stop();return;}
   if(entry.recorder?.state==='choosing')return;
   const recorder=new StreamRecorder({api:window.streamControl,track:track.mediaStreamTrack,onState:(state,data)=>{
@@ -365,16 +377,16 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
    recordButton.textContent=state==='choosing'?'Выбор файла…':state==='stopping'?'Сохранение…':state==='recording'?'■ Стоп':'● Запись';
    recordButton.title=state==='recording'?'Остановить запись и сохранить WebM':'Записать видео этого пульта в WebM без звука';
    recordButton.setAttribute('aria-label',state==='recording'?'Остановить запись: '+n.textContent:'Записать: '+n.textContent);
-   if(state==='recording'){entry.manualSubscription=true;pub.setEnabled(true);}
+   if(tiles.get(id)===entry)applyReceiveState(entry);
    if(['saved','error','canceled'].includes(state)){
-    activeRecordings.delete(recorder);if(entry.manualSubscription&&tiles.get(id)===entry)pub.setEnabled(!item.hidden);
+    activeRecordings.delete(recorder);
     if(state==='saved')recordingNotice('Запись сохранена: '+data.filePath+(data.archiveWarning?' · '+data.archiveWarning:''));
     if(state==='error')recordingNotice('Ошибка записи: '+(data.message||String(data))+(recorder.filePath?' · Файл может быть неполным: '+recorder.filePath:''),true);
    }
   }});entry.recorder=recorder;activeRecordings.add(recorder);
   await recorder.start(n.textContent).catch(()=>{});
  };
- entry.stopMonitor=monitorStream({track,video,isActive:()=>!item.hidden&&!track.isMuted,onUpdate:sample=>{
+ entry.stopMonitor=monitorStream({track,video,isActive:()=>!entry.receivePaused&&!item.hidden&&!track.isMuted,onUpdate:sample=>{
   if(tiles.get(id)!==entry)return;const transition=frameTransition(entry.lastFrameState,sample.state);if(transition)logEvent(transition,entry.label);if(['live','stale'].includes(sample.state))entry.lastFrameState=sample.state;entry.health=sample;renderEntryHealth(entry);if(wallMode)updateWallStatus();
  }});if(p.identity===videoTest.identity){
   if(typeof video.requestVideoFrameCallback==='function')video.requestVideoFrameCallback(()=>videoTest.onVideoFrame(p.identity));
@@ -404,7 +416,7 @@ function updateWallStatus(){
  const connected=rooms.filter(r=>wallStates.get(r.id)==='connected').length;
  const waiting=rooms.filter(r=>wallStates.get(r.id)==='reconnecting').length;
  const info=q('#roomInfo');if(info)info.textContent='Общая видеостена · '+rooms.length+' комнат';
- const stale=[...tiles.values()].filter(t=>!t.item.hidden&&t.health?.state==='stale').length;
+ const stale=[...tiles.values()].filter(t=>!t.receivePaused&&!t.item.hidden&&t.health?.state==='stale').length;
  const summary=q('#presenceSummary');if(summary)summary.textContent='Видеопотоков: '+tiles.size+' · Комнат подключено: '+connected+'/'+rooms.length+(waiting?' · Переподключение: '+waiting:'')+(stale?' · Без новых кадров: '+stale:'');
  const states=q('#wallRoomStates');if(states){states.hidden=false;states.innerHTML=rooms.map(r=>{
   const state=wallStates.get(r.id)||'connecting';const labels={connected:'подключена',connecting:'подключение…',reconnecting:'восстановление…'};
@@ -413,15 +425,16 @@ function updateWallStatus(){
  const placeholder=q('#placeholder');if(placeholder)placeholder.textContent=rooms.length?'Ожидание трансляций со всех пультов…':'Пока нет комнат. Создайте комнату для подключения пультов.';
 }
 function renderEntryHealth(entry){
- entry.snapshotButton.disabled=entry.snapshotPending||entry.video.readyState<2||!entry.video.videoWidth;
+ entry.snapshotButton.disabled=entry.receivePaused||entry.snapshotPending||entry.video.readyState<2||!entry.video.videoWidth;
  if(entry.recorder?.state==='recording'){const seconds=Math.floor((Date.now()-entry.recorder.startedAt)/1000);entry.recordButton.textContent='■ '+Math.floor(seconds/60).toString().padStart(2,'0')+':'+(seconds%60).toString().padStart(2,'0');}
  const sample=entry.health;
  const connected=wallMode?wallStates.get(entry.roomId)==='connected':session?.state==='connected';
- const stale=connected&&sample?.state==='stale';
- entry.badge.textContent=!connected?'↻ Восстановление связи':stale?'⚠ Нет новых кадров':sample?.state==='live'?'● LIVE':sample?.state==='paused'?'Пауза':'Ожидание видео';
+ const stale=!entry.receivePaused&&connected&&sample?.state==='stale';
+ entry.badge.textContent=entry.receivePaused?'Ⅱ Приём на паузе':!connected?'↻ Восстановление связи':stale?'⚠ Нет новых кадров':sample?.state==='live'?'● LIVE':sample?.state==='paused'?'Пауза':'Ожидание видео';
  entry.badge.classList.toggle('tile-reconnecting',!connected||stale);
  entry.item.classList.toggle('is-stale',Boolean(stale));entry.warning.hidden=!stale;
  if(stale)entry.warning.textContent='Нет новых кадров · '+Math.floor(sample.ageMs/1000)+' с';
+ if(entry.receivePaused){entry.metrics.textContent='Приём приостановлен вручную · Последний кадр не обновляется';return;}
  if(sample)entry.metrics.textContent=sample.state==='paused'?'Приём приостановлен для скрытого или выключенного потока':formatHealth(sample);
 }
 function recordingNotice(message,error=false){
@@ -430,12 +443,12 @@ function recordingNotice(message,error=false){
  const text=document.createElement('span');text.textContent=message;const close=document.createElement('button');close.textContent='×';close.setAttribute('aria-label','Закрыть уведомление');close.onclick=()=>notice.remove();notice.append(text,close);
 }
 async function saveTileSnapshot(entry){
- if(entry.snapshotPending)return;
+ if(entry.snapshotPending||entry.receivePaused)return;
  entry.snapshotPending=true;entry.snapshotButton.disabled=true;entry.snapshotButton.textContent='Сохранение…';
  const staleAge=entry.health?.state==='stale'?Math.floor(entry.health.ageMs/1000):null;
  try{const frame=await captureFrame(entry.video);const result=await window.streamControl.saveSnapshot(entry.label,frame.png);
   if(result?.saved)recordingNotice((staleAge===null?'Кадр сохранён':'Сохранён последний доступный кадр (без обновления '+staleAge+' с)')+': '+result.filePath+' · '+result.width+'×'+result.height);
  }catch(error){recordingNotice('Не удалось сохранить кадр: '+(error.message||String(error)),true);}
- finally{entry.snapshotPending=false;entry.snapshotButton.textContent='Кадр';entry.snapshotButton.disabled=entry.video.readyState<2||!entry.video.videoWidth;}
+ finally{entry.snapshotPending=false;entry.snapshotButton.textContent='Кадр';entry.snapshotButton.disabled=entry.receivePaused||entry.video.readyState<2||!entry.video.videoWidth;}
 }
 startup();

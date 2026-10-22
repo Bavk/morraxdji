@@ -79,6 +79,18 @@ app.whenReady().then(async()=>{
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.wall-room-state.connected').length"),2);
  assert.equal(await viewer.webContents.executeJavaScript("getComputedStyle(document.querySelector('#placeholder')).display"),'none');
  await until(()=>viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile-metrics')].length===2 && [...document.querySelectorAll('.tile-metrics')].every(e=>/[1-9][0-9]* FPS/.test(e.textContent)&&e.textContent.includes('Мбит/с'))"),'real receiver metrics');
+ await viewer.webContents.executeJavaScript("document.querySelector('.pause-button').click()");
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('.tile .online').textContent.includes('Приём на паузе')"),true);
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('.record-button').disabled && document.querySelector('.snapshot-button').disabled"),true);
+ await new Promise(resolve=>setTimeout(resolve,1200));
+ const pausedFrames=await viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile video')].map(v=>v.getVideoPlaybackQuality().totalVideoFrames)");
+ await new Promise(resolve=>setTimeout(resolve,2500));
+ const afterPauseFrames=await viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile video')].map(v=>v.getVideoPlaybackQuality().totalVideoFrames)");
+ assert.ok(afterPauseFrames[0]-pausedFrames[0]<=1,'paused receiver stops decoding');assert.ok(afterPauseFrames[1]>pausedFrames[1]+3,'other receiver continues');
+ await viewer.webContents.executeJavaScript("document.querySelectorAll('.focus-button')[1].click();document.querySelectorAll('.focus-button')[1].click()");
+ assert.equal(await viewer.webContents.executeJavaScript("document.querySelector('.tile').classList.contains('receive-paused')"),true);
+ await viewer.webContents.executeJavaScript("document.querySelector('.pause-button').click()");
+ await until(()=>viewer.webContents.executeJavaScript(`document.querySelector('.tile video').getVideoPlaybackQuality().totalVideoFrames>${afterPauseFrames[0]+3}`),'receive resumes without reconnect');
  await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  fs.mkdirSync(path.join(__dirname,'release'),{recursive:true});
  fs.writeFileSync(path.join(__dirname,'release/wall-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
@@ -103,6 +115,7 @@ app.whenReady().then(async()=>{
  await until(()=>recordingStore.sessions.size===2&&[...recordingChunks.values()].filter(n=>n>=2).length===2,'two independent recordings');
  await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  fs.writeFileSync(path.join(__dirname,'release/recording-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
+ assert.equal(await viewer.webContents.executeJavaScript("[...document.querySelectorAll('.pause-button')].every(b=>b.disabled)"),true);
  const beforeOrderTracks=await viewer.webContents.executeJavaScript("[...document.querySelectorAll('.tile video')].map(v=>v.srcObject.getVideoTracks()[0].id)");
  const beforeOrderSessions=[...recordingStore.sessions.keys()];
  await viewer.webContents.executeJavaScript("document.querySelector('#wallOrderButton').click()");
@@ -196,5 +209,5 @@ app.whenReady().then(async()=>{
  assert.equal(savedSnapshots.length,3);assert.ok(fs.existsSync(savedSnapshots[2].filePath));
  await until(()=>savedRecordings.length===3,'final chunk saved before window closes');await verifyRecording(savedRecordings[2]);
  assert.equal(recordingStore.sessions.size,0);
- console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset');
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio, archive playback/search/import/forget/reveal, full-resolution PNG/cancel/stale/close, persistent event log/stall/recovery/disconnect/search/export, wall order during recording/persistence/reconnect/reset, receive pause stops decoding/other source survives/resume/recording guard');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});

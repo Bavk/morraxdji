@@ -63,3 +63,5 @@
 @media(max-width:850px){.stream-grid.fixed-grid{grid-template-columns:repeat(min(var(--grid-columns),2),minmax(0,1fr))}}
 
 .order-label{overflow-wrap:anywhere;min-width:0}.toolbar{flex-wrap:wrap;justify-content:flex-end}#wallOrder .archive-row-actions{flex-wrap:nowrap}
+
+.pause-button{padding:5px 9px;font-size:12px;white-space:nowrap}.receive-paused .online{color:#edc779}.receive-paused video{opacity:.45}.tile-footer{flex-wrap:wrap}
