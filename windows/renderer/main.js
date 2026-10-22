@@ -1,3 +1,4 @@
+import {FavoriteSources} from './favorite-sources.mjs';
 import {sourceDisplayName} from './source-name.mjs';
 import {summarizeStreams,formatStreamSummary} from './wall-summary.mjs';
 import {wallShortcut} from './wall-shortcuts.mjs';
@@ -36,9 +37,10 @@ function roomEvent(room,state){
 let closingRecordings=false;
 let wallMode=false;
 let wallStates=new Map();
-let connectionSerial=0; let focusedTile=null;let streamQuery='';
+let connectionSerial=0; let focusedTile=null;let streamQuery='';let favoritesOnly=false;
 let layoutWarning=false;
 const wallLayout=new WallLayout(localStorage,()=>{layoutWarning=true;});
+const favoriteSources=new FavoriteSources(localStorage,()=>{layoutWarning=true;});
 let gridColumns=wallLayout.columns;
 const reconnect=new ViewerReconnect({
  onRetry:id=>{if(active===id && !session)connectRoom(id,{retry:true});},
@@ -163,16 +165,17 @@ function dashboard(){
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
  </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
- <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
+ <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><label class="favorites-filter"><input id="favoritesOnly" type="checkbox"> Только избранные</label><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="renameRoom" class="minor" disabled>Переименовать</button><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  mountPowerSettings(serverInfo?.power);
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#activeRecordingsButton').onclick=()=>showActiveRecordings({getRows:activeRecordingRows,onReveal:revealActiveRecording});
  updateActiveRecordingButton();updateStreamSummary();
+ q('#favoritesOnly').checked=favoritesOnly;q('#favoritesOnly').onchange=e=>{favoritesOnly=e.target.checked;applyGridLayout();};
  q('#streamSearch').value=streamQuery;
  q('#streamSearch').oninput=e=>{streamQuery=e.target.value;applyGridLayout();};
- q('#clearStreamSearch').onclick=()=>{streamQuery='';q('#streamSearch').value='';applyGridLayout();q('#streamSearch').focus();};
+ q('#clearStreamSearch').onclick=()=>{streamQuery='';favoritesOnly=false;q('#favoritesOnly').checked=false;q('#streamSearch').value='';applyGridLayout();q('#streamSearch').focus();};
  q('#streamSearch').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();q('#clearStreamSearch').click();}};
  q('#allControllers').onclick=()=>selectAllControllers();
  q('#wallOrderButton').onclick=()=>showWallOrder(wallLayout,{getSources:()=>[...tiles.values()].map(t=>({key:t.sourceKey,label:t.label})),onChange:applyGridLayout});
@@ -307,11 +310,12 @@ function applyGridLayout(){
  if(layoutWarning){layoutWarning=false;recordingNotice('Настройки видеостены не удалось сохранить на диск. Изменения действуют до закрытия приложения.',true);}
  grid.classList.toggle('fixed-grid',gridColumns>0);
  for(const entry of tiles.values()){const room=rooms.find(r=>r.id===entry.roomId);const name=sourceDisplayName(room,entry.identity,entry.participantName);entry.label=(entry.showRoomName&&room?room.name+' · ':'')+name;entry.nameNode.textContent=entry.label;entry.nameNode.title=entry.label;observedSources.set(`${entry.roomId}:${entry.identity}`,entry.label);}
- const view=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name})),streamQuery,focusedTile);focusedTile=view.focusedId;const visible=new Set(view.visible);
+ const view=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name,favorite:favoriteSources.has(t.sourceKey)})),streamQuery,focusedTile,favoritesOnly);focusedTile=view.focusedId;const visible=new Set(view.visible);
  grid.classList.toggle('focused-grid',Boolean(focusedTile));
  const order=wallLayout.sorted([...new Set([...tiles.values()].map(t=>t.sourceKey))]);
  const shortcutIds=view.matching.slice().sort((a,b)=>order.indexOf(tiles.get(a).sourceKey)-order.indexOf(tiles.get(b).sourceKey));
  for(const [id,entry] of tiles){
+  const starred=favoriteSources.has(entry.sourceKey);entry.favoriteButton.textContent=starred?'★':'☆';entry.favoriteButton.setAttribute('aria-pressed',String(starred));entry.favoriteButton.setAttribute('aria-label',(starred?'Убрать из избранного: ':'Добавить в избранное: ')+entry.label);entry.favoriteButton.title=starred?'Убрать из избранного':'Добавить в избранное';
   entry.item.style.order=String(order.indexOf(entry.sourceKey));
   const shortcutIndex=shortcutIds.indexOf(id);entry.shortcutNumber.textContent=shortcutIndex<9?String(shortcutIndex+1):'';entry.shortcutNumber.hidden=shortcutIndex<0||shortcutIndex>=9;
   entry.focus.title=shortcutIndex>=0&&shortcutIndex<9?'Крупно: клавиша '+(shortcutIndex+1)+'; Escape — сетка':'Увеличить выбранный поток';
@@ -324,12 +328,12 @@ function applyGridLayout(){
 }
 function updateActiveRecordingButton(){const button=q('#activeRecordingsButton');if(button)button.textContent='Записи: '+activeRecordings.size;}
 function activeRecordingRows(){return [...activeRecordings].map(recorder=>{const meta=recordingMetadata.get(recorder);return {...meta,state:recorder.state,startedAt:recorder.startedAt,filePath:recorder.filePath,freeBytesAtStart:recorder.freeBytesAtStart,canReveal:tiles.get(meta.tileId)?.recorder===recorder,stop:async()=>{await recorder.stop();if(recorder.error)throw Error('Не удалось сохранить запись. Проверьте уведомление об ошибке.');}};});}
-function revealActiveRecording(id){const row=activeRecordingRows().find(row=>row.id===id);if(!row?.canReveal)return false;streamQuery='';const search=q('#streamSearch');if(search)search.value='';focusedTile=row.tileId;applyGridLayout();tiles.get(row.tileId)?.item.scrollIntoView({block:'nearest'});return true;}
+function revealActiveRecording(id){const row=activeRecordingRows().find(row=>row.id===id);if(!row?.canReveal)return false;streamQuery='';favoritesOnly=false;const favorites=q('#favoritesOnly');if(favorites)favorites.checked=false;const search=q('#streamSearch');if(search)search.value='';focusedTile=row.tileId;applyGridLayout();tiles.get(row.tileId)?.item.scrollIntoView({block:'nearest'});return true;}
 function updateStreamFilterSummary(matched,total=tiles.size){
- matched??=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name})),streamQuery).matching.length;
+ matched??=filteredLayout([...tiles].map(([id,t])=>({id,label:t.label,roomName:rooms.find(r=>r.id===t.roomId)?.name,favorite:favoriteSources.has(t.sourceKey)})),streamQuery,null,favoritesOnly).matching.length;
  const hiddenRecordings=[...tiles.values()].filter(t=>t.item.hidden&&activeRecordings.has(t.recorder)&&recordingBusy(t.recorder?.state)).length;
  const summary=q('#streamSearchSummary');if(summary)summary.textContent=`Найдено потоков: ${matched} из ${total}`+(hiddenRecordings?` · Скрытых записей: ${hiddenRecordings}`:'');
- const clear=q('#clearStreamSearch');if(clear)clear.disabled=!streamQuery;
+ const clear=q('#clearStreamSearch');if(clear)clear.disabled=!streamQuery&&!favoritesOnly;
  const empty=q('#streamFilterEmpty');if(empty)empty.hidden=!total||matched>0;
 }
 function updateStreamSummary(){const host=q('#streamSummary');if(!host)return;
@@ -403,11 +407,13 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  const recordButton=document.createElement('button');recordButton.className='record-button';recordButton.textContent='● Запись';recordButton.title='Сохранить видео этого пульта в WebM без звука';
  const snapshotButton=document.createElement('button');snapshotButton.className='snapshot-button';snapshotButton.textContent='Кадр';snapshotButton.disabled=true;snapshotButton.title='Сохранить кадр в PNG в исходном разрешении, без интерфейса Windows';
  const pauseButton=document.createElement('button');pauseButton.className='pause-button';pauseButton.textContent='Ⅱ Пауза';
+ const favoriteButton=document.createElement('button');favoriteButton.className='favorite-button';favoriteButton.textContent='☆';
  const shortcutNumber=document.createElement('span');shortcutNumber.className='tile-shortcut';shortcutNumber.setAttribute('aria-hidden','true');
- visual.append(video,warning,shortcutNumber);footer.append(n,badge,pauseButton,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
+ visual.append(video,warning,shortcutNumber,favoriteButton);footer.append(n,badge,pauseButton,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
  grid.append(item);track.attach(video);
  const stableKey=sourceKey(String(roomId),p.identity);item.dataset.source=stableKey;wallLayout.remember([stableKey]);
- const entry={sourceKey:stableKey,nameNode:n,participantName:p.name||p.identity,identity:p.identity,showRoomName:Boolean(roomName),item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,snapshotButton,video,label:n.textContent,snapshotPending:false,pauseButton,receivePaused:false,shortcutNumber};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
+ const entry={sourceKey:stableKey,nameNode:n,participantName:p.name||p.identity,identity:p.identity,showRoomName:Boolean(roomName),item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,snapshotButton,video,label:n.textContent,snapshotPending:false,pauseButton,receivePaused:false,shortcutNumber,favoriteButton};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
+ favoriteButton.onclick=()=>{if(!favoriteSources.toggle(entry.sourceKey)){recordingNotice('Не удалось добавить пульт: в избранном не более 500 источников.',true);return;}applyGridLayout();};
  pauseButton.onclick=()=>{if(toggleReceive(entry)){entry.lastFrameState=null;applyReceiveState(entry);}};
  snapshotButton.onclick=()=>{
   const pending=saveTileSnapshot(entry);activeSnapshots.add(pending);void pending.then(()=>activeSnapshots.delete(pending),()=>activeSnapshots.delete(pending));
