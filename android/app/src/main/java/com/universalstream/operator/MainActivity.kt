@@ -1,6 +1,7 @@
 package com.universalstream.operator
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
@@ -191,6 +192,28 @@ class MainActivity:ComponentActivity() {
         }
         stop=findViewById(R.id.stopButton)
         store=InviteStore(this)
+        findViewById<Button>(R.id.forgetCodeButton).setOnClickListener {
+            if(!canForgetCode()){setStatus("Сначала остановите текущий сеанс и VPN");return@setOnClickListener}
+            AlertDialog.Builder(this)
+                .setTitle("Удалить сохранённое подключение?")
+                .setMessage("Код на этом пульте будет удалён. Для следующего подключения потребуется ввести его заново. Ключ на Windows останется действующим; для запрета доступа отзовите его на Windows. Файлы .usc и буфер обмена не удаляются.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить код") { _,_ ->
+                    if(!canForgetCode()){setStatus("Сначала остановите текущий сеанс и VPN");return@setPositiveButton}
+                    // Invalidate an import that was still reading a document before removal.
+                    sessionEpoch++
+                    start.isEnabled=false
+                    val button=findViewById<Button>(R.id.forgetCodeButton);button.isEnabled=false
+                    lifecycleScope.launch {
+                        try {
+                            withContext(Dispatchers.IO){store.forget()}
+                            currentCode=null;pending=null;inviteInput.text.clear()
+                            setStatus("Сохранённый код удалён с этого пульта. Введите новый код для подключения")
+                        }catch(_:Exception){setStatus("Не удалось полностью удалить сохранённое подключение. Повторите попытку")}
+                        finally{start.isEnabled=true;button.isEnabled=true}
+                    }
+                }.show()
+        }
         inviteInput.setText(store.load().orEmpty())
         address.setText(getSharedPreferences("operator",MODE_PRIVATE).getString("api_url",""))
         if(StreamState.room!=null){start.isEnabled=false;stop.isEnabled=true;setStatus("Сеанс активен")}
@@ -223,6 +246,7 @@ class MainActivity:ComponentActivity() {
         stop.setOnClickListener {stopSession()}
     }
     private fun setStatus(value:String){status.text=value}
+    private fun canForgetCode():Boolean=InviteRemoval.allowed(start.isEnabled,StreamState.room!=null,StreamState.vpnEnabled,stopping)
     private fun connectVpn(enrollment:Enrollment,attempt:Int){
         stopping=false
         start.isEnabled=false

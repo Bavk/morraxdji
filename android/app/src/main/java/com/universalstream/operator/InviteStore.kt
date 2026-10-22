@@ -42,4 +42,9 @@ internal class InviteStore(context: Context) {
             }
         }catch (_:Exception){null}
     }
+    fun forget() {
+        check(preferences.edit().remove("key").commit()) { "Не удалось удалить сохранённый код" }
+        val store=KeyStore.getInstance("AndroidKeyStore").apply{load(null)}
+        if(store.containsAlias(alias))store.deleteEntry(alias)
+    }
 }
