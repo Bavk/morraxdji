@@ -131,9 +131,11 @@ const server = http.createServer(async (req,res) => {
           if(pathname==='/api/operator/rooms')return reply(res,200,{rooms:available.map(r=>({id:r.id,name:r.name})),operatorName:operator.name});
           const target=body.roomId===undefined?available[0]:available.find(r=>r.id===body.roomId);
           if(!target)return reply(res,403,{error:'Нет доступа к выбранной комнате'});
+          const ttlSeconds=preferences.expiresAt===null?300:Math.min(300,Math.floor(preferences.expiresAt/1000)-Math.floor(Date.now()/1000));
+          if(ttlSeconds<1)return reply(res,403,{error:'Срок доступа оператора истёк'});
           return reply(res,200,{wsUrl,roomId:target.id,roomName:target.name,operatorName:operator.name,
           streamProfile:preferences.profile==='auto'?roomSettings(target).profile:preferences.profile,
-          token:jwt({identity:`operator_${operator.id}`,name:operator.name,room:target.id,publisher:true,ttlSeconds:preferences.expiresAt===null?300:Math.max(1,Math.min(300,Math.floor(preferences.expiresAt/1000)-Math.floor(Date.now()/1000)))})});
+          token:jwt({identity:`operator_${operator.id}`,name:operator.name,room:target.id,publisher:true,ttlSeconds})});
         }
       }
       return reply(res,401,{error:'Invalid or revoked key'});
@@ -165,7 +167,10 @@ const server = http.createServer(async (req,res) => {
       if(!body||typeof body!=='object'||Array.isArray(body))return reply(res,400,{error:'Ожидается объект настроек'});
       const next=validatedSettings(isOperator?'operator':'room',item.settings,body.settings===undefined?{}:body.settings);
       const name=body.name===undefined?item.name:validatedName(body.name,isOperator?60:80);
-      if(isOperator&&next.preferredRoomId!==null&&!allowedRooms(found.home,item).some(room=>room.id===next.preferredRoomId))return reply(res,400,{error:'Предпочтительная комната должна быть разрешена оператору'});
+      if(isOperator&&next.preferredRoomId!==null&&!allowedRooms(found.home,item).some(room=>room.id===next.preferredRoomId)){
+        if(body.settings&&Object.hasOwn(body.settings,'preferredRoomId'))return reply(res,400,{error:'Предпочтительная комната должна быть разрешена оператору'});
+        next.preferredRoomId=null;
+      }
       if(!isOperator&&next.maxOperators>0&&assignmentCount(item)>next.maxOperators)return reply(res,409,{error:'Сначала сократите число назначенных операторов или увеличьте лимит'});
       const oldName=item.name,oldSettings=item.settings;item.name=name;item.settings=next;
       try{persist();}catch(error){item.name=oldName;if(oldSettings===undefined)delete item.settings;else item.settings=oldSettings;throw error;}

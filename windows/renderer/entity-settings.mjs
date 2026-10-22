@@ -33,7 +33,7 @@ export function showEntitySettings({kind,item,rooms,api,onSaved=()=>{}}){
   field('sortOrder','Порядок в списке (меньше — выше)',{advanced:true,type:'number',value:settings.sortOrder||0,max:999});
  }
  field('profile',operator?'Профиль качества для этого оператора':'Профиль качества комнаты',{advanced:true,value:settings.profile||'auto',options:profiles});
- dialog.querySelector('.settings-note').textContent=operator?'Приостановка и истечение срока отключают трансляции во всех комнатах. Повторное включение сохраняет прежний ключ. Профиль применяется при следующем запуске на APK v0.33; это настройка штатного приложения. Заметки и модель пульта видны только администратору.':'Закрытие приёма завершает трансляции, но сохраняет операторов и записи. Лимит учитывает все назначенные неотозванные ключи, включая приостановленные. Профиль применяется при следующем запуске на APK v0.33, если у оператора выбран автоматический профиль.';
+ dialog.querySelector('.settings-note').textContent=operator?'Приостановка отключает трансляции во всех комнатах. Повторное включение сохраняет прежний код. Качество изменится при следующем запуске.':'Закрытие приёма останавливает трансляции. Операторы и записи сохраняются. Лимит учитывает все назначенные неотозванные ключи, включая приостановленные.';
  let busy=false;dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.querySelector('.settings-cancel').onclick=()=>dialog.close();
  dialog.querySelector('form').onsubmit=async e=>{
   e.preventDefault();if(busy)return;
