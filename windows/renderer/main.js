@@ -1,3 +1,4 @@
+import {StreamAlerts,AlertTone} from './stream-alert.mjs';
 import {FavoriteSources} from './favorite-sources.mjs';
 import {sourceDisplayName} from './source-name.mjs';
 import {summarizeStreams,formatStreamSummary} from './wall-summary.mjs';
@@ -23,6 +24,8 @@ let presence=new Map();let presenceTimer=null;let presenceRequest=0;
 const activeRecordings=new Set();
 const recordingMetadata=new Map();let recordingSerial=0;
 const activeSnapshots=new Set();
+const alertTone=new AlertTone();
+const streamAlerts=new StreamAlerts({play:()=>alertTone.play(),onError:()=>{const checkbox=q('#streamSound');if(checkbox)checkbox.checked=false;const button=q('#testStreamSound');if(button)button.disabled=true;alertTone.stop();recordingNotice('Звуковой сигнал недоступен. Проверьте устройство вывода и включите сигнал снова.',true);}});
 const pendingEvents=new Set();
 const observedSources=new Map(),journalRoomStates=new Map();
 let eventLogWarning=false;
@@ -160,17 +163,26 @@ function dashboard(){
  <button id="reconcileRevoked" class="minor">Проверить отключения операторов</button>
  <button id="saveDashboardDiagnostics" class="minor">📄 Сохранить диагностику</button>
  <button id="cleanupVpn" class="minor" ${serverInfo?.mode==='vpn'?'':'hidden'}>Проверить отзыв VPN-ключей</button>
- <button id="stopServer" class="danger">Остановить сервер</button><br/>Только видеотрансляции<br/>Звук и чат отключены</div></aside>
+ <button id="stopServer" class="danger">Остановить сервер</button><br/>Только видеотрансляции<br/>Передача звука и чат отключены</div></aside>
  <main class="main"><header><div><div id="roomTitle" class="room-title">Выберите комнату</div><span id="roomInfo" class="muted">Мониторинг операторов</span></div>
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
  </select></label><button id="activeRecordingsButton" class="minor">Записи: 0</button><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
- <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><label class="favorites-filter"><input id="favoritesOnly" type="checkbox"> Только избранные</label><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
+ <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><div id="streamSummary" class="stream-summary" role="status" title="Сумма свежих измерений входящего видеотрафика этого окна, включая скрытые записываемые потоки. Не включает VPN, аудио и служебный трафик. Доля в скобках — число потоков со свежим битрейтом из принимаемых."></div><div class="stream-filter"><label for="streamSearch">Найти пульт</label><input id="streamSearch" type="search" maxlength="120" placeholder="Имя пульта или комната…" autocomplete="off"><label class="favorites-filter"><input id="favoritesOnly" type="checkbox"> Только избранные</label><button id="clearStreamSearch" class="minor" type="button">Сбросить</button><span id="streamSearchSummary" class="muted" role="status"></span><label class="favorites-filter" title="Один короткий сигнал при отсутствии новых кадров около 4 секунд. Только после работающего видео; интервал между сигналами 10 секунд. Включается на текущий сеанс."><input id="streamSound" type="checkbox"> Сигнал зависания</label><button id="testStreamSound" class="minor" type="button" disabled>Проверить звук</button><span class="shortcut-help" title="Вне полей ввода, диалогов и полноэкранного режима">1–9 — крупно · Esc — сетка</span></div><p id="streamFilterEmpty" class="filter-empty" hidden>По этому запросу пульты не найдены. Измените поиск или нажмите «Сбросить».</p><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="renameRoom" class="minor" disabled>Переименовать</button><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  mountPowerSettings(serverInfo?.power);
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#activeRecordingsButton').onclick=()=>showActiveRecordings({getRows:activeRecordingRows,onReveal:revealActiveRecording});
+ q('#streamSound').checked=streamAlerts.enabled;
+ q('#testStreamSound').disabled=!streamAlerts.enabled;
+ q('#streamSound').onchange=async e=>{
+  const checkbox=e.target;checkbox.disabled=true;
+  try{if(checkbox.checked){if(await alertTone.ready())streamAlerts.enable(true);}else{streamAlerts.enable(false);alertTone.stop();}}
+  catch{checkbox.checked=false;streamAlerts.enable(false);alertTone.stop();recordingNotice('Не удалось включить звук. Проверьте устройство вывода.',true);}
+  finally{checkbox.disabled=false;const button=q('#testStreamSound');if(button)button.disabled=!streamAlerts.enabled;}
+ };
+ q('#testStreamSound').onclick=()=>{try{alertTone.play();}catch{recordingNotice('Звуковой выход недоступен. Выключите и снова включите сигнал.',true);}};
  updateActiveRecordingButton();updateStreamSummary();
  q('#favoritesOnly').checked=favoritesOnly;q('#favoritesOnly').onchange=e=>{favoritesOnly=e.target.checked;applyGridLayout();};
  q('#streamSearch').value=streamQuery;
@@ -209,7 +221,7 @@ function dashboard(){
  };
  q('#stopServer').onclick=async()=>{
   if(!confirm('Остановить все трансляции и локальный сервер?'))return;
-  try{await disconnect();await window.streamControl.stopServer();rooms=[];active=null;wallMode=false;serverInfo=null;startScreen();}
+  try{await disconnect();await window.streamControl.stopServer();rooms=[];active=null;wallMode=false;serverInfo=null;streamAlerts.enable(false);alertTone.stop();startScreen();}
   catch(err){displayErr(err);}
  };
  q('#addRoom').onclick=async()=>{const name=prompt('Название новой комнаты');if(!name?.trim())return;try{await window.streamControl.createRoom(name.trim());await refresh();}catch(err){displayErr(err);}};
@@ -294,7 +306,7 @@ async function refresh(fallback=true){try{const data=await window.streamControl.
 async function selectRoom(id){if(!wallMode&&active===id&&session)return;if(!confirmViewSwitch(activeRecordings,message=>confirm(message)))return;await disconnect();wallMode=false;wallStates.clear();q('#wallRoomStates').hidden=true;videoTest.stop(true);active=id;presence=new Map();paintRoomList();await Promise.all([pollPresence(),connectRoom(id)]);}
 function clearTiles(){
  for(const entry of tiles.values()){void entry.recorder?.stop();entry.stopMonitor?.();entry.track.detach();entry.item.remove();}
- tiles.clear();observedSources.clear();focusedTile=null;updateStreamFilterSummary(0,0);updateStreamSummary();
+ tiles.clear();streamAlerts.clear();observedSources.clear();focusedTile=null;updateStreamFilterSummary(0,0);updateStreamSummary();
 }
 async function disconnect(){
  wall.stop();wallStates.clear();journalRoomStates.clear();
@@ -438,15 +450,15 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
   await recorder.start(n.textContent).catch(()=>{});
  };
  entry.stopMonitor=monitorStream({track,video,isActive:()=>!track.isMuted&&receiveEnabled({paused:entry.receivePaused,hidden:item.hidden,recordingState:entry.recorder?.state}),onUpdate:sample=>{
-  if(tiles.get(id)!==entry)return;const transition=frameTransition(entry.lastFrameState,sample.state);if(transition)logEvent(transition,entry.label);if(['live','stale'].includes(sample.state))entry.lastFrameState=sample.state;entry.health=sample;entry.sampleAt=performance.now();renderEntryHealth(entry);updateStreamSummary();if(wallMode)updateWallStatus();
+  if(tiles.get(id)!==entry)return;const transition=frameTransition(entry.lastFrameState,sample.state);if(transition)logEvent(transition,entry.label);if(['live','stale'].includes(sample.state))entry.lastFrameState=sample.state;entry.health=sample;streamAlerts.observe(id,sample);entry.sampleAt=performance.now();renderEntryHealth(entry);updateStreamSummary();if(wallMode)updateWallStatus();
  }});if(p.identity===videoTest.identity){
   if(typeof video.requestVideoFrameCallback==='function')video.requestVideoFrameCallback(()=>videoTest.onVideoFrame(p.identity));
   else video.addEventListener('playing',()=>videoTest.onVideoFrame(p.identity),{once:true});
  }
  applyGridLayout();updatePlaceholder();
 }
-function detachTrack(track,pub,p,roomId=active){const id=`${roomId}:${p.identity}:${pub.trackSid}`;const obj=tiles.get(id);if(obj){void obj.recorder?.stop();obj.stopMonitor?.();obj.track.detach();obj.item.remove();tiles.delete(id);}if(focusedTile===id)focusedTile=null;applyGridLayout();updatePlaceholder();}
-function removeParticipant(p,roomId=active){const key=`${roomId}:${p.identity}`;const label=observedSources.get(key);if(label){logEvent('participant-left',label);observedSources.delete(key);}for(const [id,t] of tiles){if(id.startsWith(roomId+':'+p.identity+':')){void t.recorder?.stop();t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
+function detachTrack(track,pub,p,roomId=active){const id=`${roomId}:${p.identity}:${pub.trackSid}`;const obj=tiles.get(id);if(obj){void obj.recorder?.stop();obj.stopMonitor?.();obj.track.detach();obj.item.remove();tiles.delete(id);streamAlerts.forget(id);}if(focusedTile===id)focusedTile=null;applyGridLayout();updatePlaceholder();}
+function removeParticipant(p,roomId=active){const key=`${roomId}:${p.identity}`;const label=observedSources.get(key);if(label){logEvent('participant-left',label);observedSources.delete(key);}for(const [id,t] of tiles){if(id.startsWith(roomId+':'+p.identity+':')){void t.recorder?.stop();t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);streamAlerts.forget(id);if(focusedTile===id)focusedTile=null;}}applyGridLayout();updatePlaceholder();}
 function updatePlaceholder(){const placeholder=q('#placeholder');if(placeholder)placeholder.hidden=tiles.size>0;if(wallMode)updateWallStatus();}
 window.addEventListener('keydown',event=>{
  const target=event.composedPath()[0];const blocked=Boolean(document.fullscreenElement||q('dialog[open]')||target?.isContentEditable||target?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])'));
@@ -466,7 +478,7 @@ async function selectAllControllers(){
 }
 function removeRoomTiles(roomId){
  for(const key of observedSources.keys())if(key.startsWith(roomId+':'))observedSources.delete(key);
- for(const [id,t] of tiles)if(t.roomId===roomId){void t.recorder?.stop();t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);if(focusedTile===id)focusedTile=null;}
+ for(const [id,t] of tiles)if(t.roomId===roomId){void t.recorder?.stop();t.stopMonitor?.();t.track.detach();t.item.remove();tiles.delete(id);streamAlerts.forget(id);if(focusedTile===id)focusedTile=null;}
  applyGridLayout();updatePlaceholder();
 }
 function updateWallStatus(){
