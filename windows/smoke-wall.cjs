@@ -46,8 +46,9 @@ app.whenReady().then(async()=>{
  publisher=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
  await publisher.loadURL('data:text/html,<html><body>USC synthetic publishers</body></html>');
  await publisher.webContents.executeJavaScript(bundle+`;USCWallPublisher.start(${JSON.stringify(configs)})`);
- await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length===2 && [...document.querySelectorAll('.tile video')].every(v=>v.videoWidth>0 && v.readyState>=2)"),'two decoded video streams');
+ await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length===2 && [...document.querySelectorAll('.tile video')].every(v=>v.videoWidth>0 && v.readyState>=2 && v.getVideoPlaybackQuality().totalVideoFrames>=3)"),'two decoded video streams');
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.wall-room-state.connected').length"),2);
+ assert.equal(await viewer.webContents.executeJavaScript("getComputedStyle(document.querySelector('#placeholder')).display"),'none');
  fs.mkdirSync(path.join(__dirname,'release'),{recursive:true});
  fs.writeFileSync(path.join(__dirname,'release/wall-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
  await viewer.webContents.executeJavaScript("document.querySelector('.focus-button').click()");

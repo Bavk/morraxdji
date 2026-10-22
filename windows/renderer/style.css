@@ -34,4 +34,5 @@
 .tile-footer{gap:8px}
 .tile:fullscreen .tile-footer{background:#1b2940}
 .tile-reconnecting{color:#ffcc72}
+[hidden]{display:none!important}
 @media(max-width:850px){.stream-grid.fixed-grid{grid-template-columns:repeat(min(var(--grid-columns),2),minmax(0,1fr))}}
