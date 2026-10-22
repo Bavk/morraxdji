@@ -40,4 +40,9 @@
 .stream-stale{position:absolute;left:12px;right:12px;top:12px;padding:10px 12px;border:1px solid #ca8a34;border-radius:8px;background:#3b281bea;color:#ffdc9f;font-size:13px;font-weight:600;pointer-events:none}
 .tile.is-stale{border-color:#ca8a34}
 .tile:fullscreen .tile-visual video{height:calc(100vh - 90px)}
+.record-button{padding:5px 9px;font-size:12px;background:#423145;color:#ffbdc8;white-space:nowrap}
+.record-button.recording{background:#a32840;color:#fff;font-variant-numeric:tabular-nums}
+.recording-notice{position:fixed;right:20px;bottom:20px;max-width:min(600px,90vw);padding:14px 16px;border:1px solid #428460;border-radius:10px;background:#163326;color:#c1f4d6;box-shadow:0 8px 30px #0008;display:flex;gap:12px;align-items:flex-start;z-index:1000;overflow-wrap:anywhere}
+.recording-notice button{padding:0 7px;background:transparent;font-size:20px;color:inherit}
+.recording-notice.recording-error{border-color:#b96067;background:#49232d;color:#ffd0d4}
 @media(max-width:850px){.stream-grid.fixed-grid{grid-template-columns:repeat(min(var(--grid-columns),2),minmax(0,1fr))}}

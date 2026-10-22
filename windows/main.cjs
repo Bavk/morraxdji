@@ -8,6 +8,8 @@ const {ADDRESS:VPN_IP} = require('./vpn.cjs');
 const {checkMediaPorts,assertMediaPortsAvailable} = require('./preflight.cjs');
 const {renderLivekitConfig} = require('./compose-config.cjs');
 const {NativeLiveKit,binaryPath,managedProcess} = require('./native-livekit.cjs');
+const {RecordingStore,recordingName}=require('./recording-store.cjs');
+const recordings=new RecordingStore();
 const {findWireGuard,installTunnel} = require('./wireguard-service.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -175,7 +177,23 @@ function mainWindow(){
   win.loadFile(path.join(__dirname,'dist','index.html'));
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   win.webContents.on('will-navigate',event=>event.preventDefault());
+  const recordingOwner=win.webContents.id;
+  win.webContents.once('destroyed',()=>{void recordings.closeOwner(recordingOwner);});
 }
+ipcMain.handle('recording:begin',async(event,label)=>{
+  if(typeof label!=='string'||label.length>300)throw Error('Некорректное имя записи');
+  const owner=event.sender.id;
+  const {canceled,filePath}=await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender),{
+    title:'Записать видео с пульта',defaultPath:path.join(app.getPath('videos'),recordingName(label)),
+    filters:[{name:'Видео WebM (без звука)',extensions:['webm']}]
+  });
+  if(canceled||!filePath||event.sender.isDestroyed())return {canceled:true};
+  const result=await recordings.begin(owner,filePath);
+  if(event.sender.isDestroyed()){await recordings.finish(owner,result.id);return {canceled:true};}
+  return result;
+});
+ipcMain.handle('recording:append',(event,id,bytes)=>recordings.append(event.sender.id,id,bytes));
+ipcMain.handle('recording:finish',(event,id)=>recordings.finish(event.sender.id,id));
 ipcMain.handle('server:start',(_,ip,mode)=>startServer(String(ip),String(mode||'lan')));
 ipcMain.handle('vpn:configure',(_,data)=>vpn().configure(data));
 ipcMain.handle('vpn:status',()=>vpn().status());

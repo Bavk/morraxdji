@@ -3,6 +3,8 @@ const {app,BrowserWindow,ipcMain}=require('electron');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),assert=require('node:assert/strict');
 const {NativeLiveKit,binaryPath}=require('./native-livekit.cjs');
 const {renderLivekitConfig}=require('./compose-config.cjs');
+const {RecordingStore}=require('./recording-store.cjs');
+const recordingStore=new RecordingStore();const savedRecordings=[];const recordingChunks=new Map();let recordingIndex=0,playback;
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'usc-wall-smoke-'));
 app.setPath('userData',dir);app.disableHardwareAcceleration();
 app.on('window-all-closed',()=>{});
@@ -11,7 +13,7 @@ async function until(check,label,timeout=30000){
  const end=Date.now()+timeout;while(Date.now()<end){if(await check())return;await new Promise(r=>setTimeout(r,150));}throw Error('Timeout: '+label);
 }
 async function cleanup(){
- viewer?.destroy();publisher?.destroy();if(api){const server=api;api=null;await new Promise(r=>server.close(r));}await native.stop();
+ if(viewer&&!viewer.isDestroyed()){await recordingStore.closeOwner(viewer.webContents.id);viewer.destroy();}if(publisher&&!publisher.isDestroyed())publisher.destroy();if(playback&&!playback.isDestroyed())playback.destroy();if(api){const server=api;api=null;await new Promise(r=>server.close(r));}await native.stop();
  // Chromium keeps its temporary profile open until app.exit; remove synthetic credentials only.
  for(const name of ['livekit.yaml','rooms.json'])fs.rmSync(path.join(dir,name),{force:true});
 }
@@ -35,6 +37,9 @@ app.whenReady().then(async()=>{
  ipcMain.handle('room:list',()=>call('/api/admin/rooms'));
  ipcMain.handle('room:view',(_,id)=>call(`/api/admin/rooms/${id}/viewer`,'POST',{}));
  ipcMain.handle('room:presence',(_,id)=>call(`/api/admin/rooms/${id}/presence`));
+ ipcMain.handle('recording:begin',event=>recordingStore.begin(event.sender.id,path.join(dir,`test-recording-${++recordingIndex}.webm`)));
+ ipcMain.handle('recording:append',async(event,id,bytes)=>{await recordingStore.append(event.sender.id,id,bytes);recordingChunks.set(id,(recordingChunks.get(id)||0)+1);});
+ ipcMain.handle('recording:finish',async(event,id)=>{const result=await recordingStore.finish(event.sender.id,id);savedRecordings.push(result);return result;});
  viewer=new BrowserWindow({show:false,width:1600,height:1000,webPreferences:{preload:path.join(__dirname,'preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
  await viewer.loadFile(path.join(__dirname,'dist/index.html'));
  await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('#allControllers'))"),'dashboard');
@@ -60,12 +65,39 @@ app.whenReady().then(async()=>{
  fs.writeFileSync(path.join(__dirname,'release/health-stale-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
  await publisher.webContents.executeJavaScript('USCWallPublisher.resume(0)');
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile.is-stale').length===0 && [...document.querySelectorAll('.tile .online')].every(e=>e.textContent.includes('LIVE'))"),'fresh frames clear warning');
- await viewer.webContents.executeJavaScript("document.querySelector('.focus-button').click()");
+ await viewer.webContents.executeJavaScript("document.querySelectorAll('.record-button').forEach(b=>b.click())");
+ await until(()=>recordingStore.sessions.size===2&&[...recordingChunks.values()].filter(n=>n>=2).length===2,'two independent recordings');
+ await viewer.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+ fs.writeFileSync(path.join(__dirname,'release/recording-smoke.png'),(await viewer.webContents.capturePage()).toPNG());
+ const firstRecording=[...recordingStore.sessions.keys()][0],beforeHidden=recordingChunks.get(firstRecording);
+ await viewer.webContents.executeJavaScript("document.querySelectorAll('.focus-button')[1].click()");
  assert.equal(await viewer.webContents.executeJavaScript("document.querySelectorAll('.tile:not([hidden])').length"),1);
+ await until(()=>(recordingChunks.get(firstRecording)||0)>=beforeHidden+2,'recording continues while tile hidden');
  await viewer.webContents.executeJavaScript("document.querySelector('.tile:not([hidden]) .focus-button').click()");
- await publisher.webContents.executeJavaScript('USCWallPublisher.stop(0)');
+ await viewer.webContents.executeJavaScript("document.querySelector('.record-button').click()");
+ await until(()=>savedRecordings.length===1,'manual recording finalization');
+ assert.equal(recordingStore.sessions.size,1);assert.equal(savedRecordings[0].saved,true);
+ const verifyRecording=async result=>{
+  assert.equal(result.saved,true);assert.ok(result.bytes>1000);
+  const bytes=fs.readFileSync(result.filePath);assert.equal(bytes.subarray(0,4).toString('hex'),'1a45dfa3');
+  playback=new BrowserWindow({show:false,webPreferences:{sandbox:true,backgroundThrottling:false}});
+  await playback.loadURL('data:text/html,<video muted autoplay></video>');
+  await playback.webContents.executeJavaScript(`document.querySelector('video').src='data:video/webm;base64,${bytes.toString('base64')}';document.querySelector('video').play()`);
+  await until(()=>playback.webContents.executeJavaScript("document.querySelector('video').videoWidth>0&&document.querySelector('video').getVideoPlaybackQuality().totalVideoFrames>=3"),'saved WebM decodes');
+  assert.equal(await playback.webContents.executeJavaScript("document.querySelector('video').captureStream().getAudioTracks().length"),0);
+  playback.destroy();playback=null;
+ };
+ await verifyRecording(savedRecordings[0]);
+ await publisher.webContents.executeJavaScript('USCWallPublisher.stop(1)');
  await until(()=>viewer.webContents.executeJavaScript("document.querySelectorAll('.tile video').length===1 && document.querySelector('.tile video').videoWidth>0"),'second stream survives first publisher disconnect');
+ await until(()=>savedRecordings.length===2,'recording finalizes on source disconnect');await verifyRecording(savedRecordings[1]);
  await viewer.webContents.executeJavaScript("document.querySelector('[data-room]').click()");
  await until(()=>viewer.webContents.executeJavaScript("!document.querySelector('.keys-panel').hidden && document.querySelector('#wallRoomStates').hidden"),'return to single room');
- console.log('USC_WALL_SMOKE_PASS: two decoded rooms, receiver metrics, frozen-source warning/recovery, focus/grid, independent disconnect, return to room');
+ await until(()=>viewer.webContents.executeJavaScript("Boolean(document.querySelector('.record-button'))"),'single room video');
+ await viewer.webContents.executeJavaScript("document.querySelector('.record-button').click()");
+ await until(()=>recordingStore.sessions.size===1&&[...recordingStore.sessions.keys()].some(id=>(recordingChunks.get(id)||0)>=2),'recording before close');
+ const closed=new Promise(resolve=>viewer.once('closed',resolve));viewer.close();await closed;
+ await until(()=>savedRecordings.length===3,'final chunk saved before window closes');await verifyRecording(savedRecordings[2]);
+ assert.equal(recordingStore.sessions.size,0);
+ console.log('USC_WALL_SMOKE_PASS: wall, health, two WebM recordings, hidden tile, disconnect/close finalization, saved playback without audio');
 }).then(async()=>{clearTimeout(deadline);await cleanup();app.exit(0);}).catch(async error=>{console.error(error);clearTimeout(deadline);try{await cleanup();}finally{app.exit(1);}});
