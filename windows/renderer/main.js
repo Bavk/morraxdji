@@ -1,3 +1,4 @@
+import {WallLayout,sourceKey,showWallOrder} from './wall-layout.mjs';
 import {frameTransition,showEventLog} from './event-log-view.mjs';
 import { Room,RoomEvent,Track } from 'livekit-client';
 import './style.css';
@@ -28,7 +29,9 @@ let closingRecordings=false;
 let wallMode=false;
 let wallStates=new Map();
 let connectionSerial=0; let focusedTile=null;
-let gridColumns=Number(localStorage.getItem('usc-grid-columns'))||0;
+let layoutWarning=false;
+const wallLayout=new WallLayout(localStorage,()=>{layoutWarning=true;});
+let gridColumns=wallLayout.columns;
 const reconnect=new ViewerReconnect({
  onRetry:id=>{if(active===id && !session)connectRoom(id,{retry:true});},
  onWaiting:(id,delay)=>{if(active===id){const x=q('#roomInfo');if(x)x.textContent=`Видеосервер недоступен — повтор через ${Math.ceil(delay/1000)} с`;}}
@@ -150,12 +153,14 @@ function dashboard(){
  <main class="main"><header><div><div id="roomTitle" class="room-title">Выберите комнату</div><span id="roomInfo" class="muted">Мониторинг операторов</span></div>
  <div class="toolbar"><label class="grid-picker">Сетка <select id="gridColumns">
  <option value="0">Авто</option><option value="1">1 столбец</option><option value="2">2 столбца</option><option value="3">3 столбца</option><option value="4">4 столбца</option>
- </select></label><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
+ </select></label><button id="wallOrderButton" class="minor">Порядок пультов</button><button id="wallFullscreen" class="minor">Во весь экран</button><button id="selfTest" class="minor" disabled>🧪 Проверить видео</button><button id="newKey" class="primary" disabled>+ Ключ оператора</button><button id="refresh" class="minor">Обновить</button></div></header>
  <div id="alert" class="alert" hidden></div><div id="selfTestStatus" class="self-test-status" aria-live="polite"></div><div id="wallRoomStates" class="wall-room-states" hidden></div><div id="presenceSummary" class="presence-summary">Обновление статуса операторов…</div><section id="content" class="content"><div class="empty">Выберите комнату слева</div></section>
  <section class="keys-panel"><div class="keys-head"><h2>Ключи операторов</h2><button id="deleteRoom" class="danger" disabled>Удалить комнату</button></div><div id="keys"></div></section></main></div>`;
  q('#openEvents').onclick=()=>showEventLog(window.streamControl);
  q('#openArchive').onclick=()=>showRecordingArchive(window.streamControl);
  q('#allControllers').onclick=()=>selectAllControllers();
+ q('#wallOrderButton').onclick=()=>showWallOrder(wallLayout,{getSources:()=>[...tiles.values()].map(t=>({key:t.sourceKey,label:t.label})),onChange:applyGridLayout});
+ if(layoutWarning)recordingNotice('Не удалось прочитать настройки видеостены. Используются доступные настройки в памяти.',true);
  q('#wallFullscreen').onclick=()=>q('#content').requestFullscreen?.().catch(displayErr);
  q('#endpoint').textContent=serverInfo?.operatorUrl||'';
  q('#modeInfo').textContent=serverInfo?.mode==='vpn'?'🔒 WireGuard VPN':'LAN / локальная сеть';
@@ -206,7 +211,7 @@ function dashboard(){
    finally{button.disabled=false;}
  };
  q('#gridColumns').value=String([0,1,2,3,4].includes(gridColumns)?gridColumns:0);
- q('#gridColumns').onchange=e=>{gridColumns=Number(e.target.value);localStorage.setItem('usc-grid-columns',String(gridColumns));applyGridLayout();};
+ q('#gridColumns').onchange=e=>{gridColumns=Number(e.target.value);wallLayout.setColumns(gridColumns);applyGridLayout();};
  q('#refresh').onclick=()=>refresh(false);
  q('#deleteRoom').onclick=async()=>{if(!active)return;const r=rooms.find(x=>x.id===active);if(!confirm(`Удалить комнату «${r?.name}»?`))return;
  try{const result=await window.streamControl.deleteRoom(active);active=null;await disconnect();await refresh(false);
@@ -275,9 +280,12 @@ async function disconnect(){
 function applyGridLayout(){
  const grid=q('#grid');if(!grid)return;
  grid.style.setProperty('--grid-columns',gridColumns?String(gridColumns):'0');
+ if(layoutWarning){layoutWarning=false;recordingNotice('Настройки видеостены не удалось сохранить на диск. Изменения действуют до закрытия приложения.',true);}
  grid.classList.toggle('fixed-grid',gridColumns>0);
  grid.classList.toggle('focused-grid',Boolean(focusedTile));
+ const order=wallLayout.sorted([...new Set([...tiles.values()].map(t=>t.sourceKey))]);
  for(const [id,entry] of tiles){
+  entry.item.style.order=String(order.indexOf(entry.sourceKey));
   entry.item.hidden=Boolean(focusedTile && id!==focusedTile);
   entry.item.classList.toggle('is-focused',id===focusedTile);
   entry.focus.textContent=id===focusedTile?'Вернуть сетку':'Крупно';
@@ -344,7 +352,8 @@ function attachTrack(track,pub,p,roomId=active,roomName=null){
  const snapshotButton=document.createElement('button');snapshotButton.className='snapshot-button';snapshotButton.textContent='Кадр';snapshotButton.disabled=true;snapshotButton.title='Сохранить кадр в PNG в исходном разрешении, без интерфейса Windows';
  visual.append(video,warning);footer.append(n,badge,snapshotButton,recordButton,focus);item.append(visual,footer,metrics);video.ondblclick=()=>item.requestFullscreen?.();
  grid.append(item);track.attach(video);
- const entry={item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,manualSubscription:false,snapshotButton,video,label:n.textContent,snapshotPending:false};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
+ const stableKey=sourceKey(String(roomId),p.identity);item.dataset.source=stableKey;wallLayout.remember([stableKey]);
+ const entry={sourceKey:stableKey,item,track,focus,roomId,badge,warning,metrics,health:null,pub,recordButton,manualSubscription:false,snapshotButton,video,label:n.textContent,snapshotPending:false};tiles.set(id,entry);observedSources.set(`${roomId}:${p.identity}`,entry.label);logEvent('stream-started',entry.label);
  snapshotButton.onclick=()=>{
   const pending=saveTileSnapshot(entry);activeSnapshots.add(pending);void pending.then(()=>activeSnapshots.delete(pending),()=>activeSnapshots.delete(pending));
  };

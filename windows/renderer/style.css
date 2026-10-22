@@ -61,3 +61,5 @@
 .archive-pages{display:flex;justify-content:center;align-items:center;gap:14px;margin-top:18px;color:#9fb4cf;font-size:12px}
 @media(max-width:750px){.archive-row{align-items:flex-start;flex-direction:column}.archive-row-actions{width:100%}.recording-archive{padding:16px}}
 @media(max-width:850px){.stream-grid.fixed-grid{grid-template-columns:repeat(min(var(--grid-columns),2),minmax(0,1fr))}}
+
+.order-label{overflow-wrap:anywhere;min-width:0}.toolbar{flex-wrap:wrap;justify-content:flex-end}#wallOrder .archive-row-actions{flex-wrap:nowrap}
